@@ -1,0 +1,124 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+# A newer push to the same ref makes the run before it pointless.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: check
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # Node 24, from mise.toml; mise-action caches what it installs. Nothing else is needed:
+      # //protocol:kotlin runs `node scripts/kotlin.ts`, and the Kotlin compiler and JDK 21 in
+      # protocol/mise.toml belong to //protocol:kotlin-check, which `mise run check` does not run.
+      - name: Install mise and the tools it names
+        uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550 # v5.2.2
+      - name: Cache npm
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.npm
+          key: npm-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            npm-${{ runner.os }}-
+      - name: Install workspace dependencies
+        run: npm ci
+      - name: Type-check and test every package
+        run: mise run check
+
+  images:
+    name: images
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Build the server image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: Dockerfile
+          push: false
+          tags: amuse:ci
+          cache-from: type=gha,scope=server
+          cache-to: type=gha,scope=server,mode=max
+      - name: Build the sandbox image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: sandbox/Dockerfile
+          push: false
+          tags: amuse-sandbox:ci
+          cache-from: type=gha,scope=sandbox
+          cache-to: type=gha,scope=sandbox,mode=max
+
+  android:
+    name: android
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The filter below diffs against the base of a pull request, or against the commit
+          # before a push, so it needs more than the tip.
+          fetch-depth: 0
+      - name: Did android/ change?
+        id: changed
+        env:
+          BEFORE: ${{ github.event.before }}
+        run: |
+          set -eu
+          # What to compare against: the base branch of a pull request, or the commit that was
+          # there before a push. If neither can be found, every file counts as changed.
+          against=""
+          if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
+            if git fetch --no-tags --quiet origin "$GITHUB_BASE_REF"; then
+              against=FETCH_HEAD
+            fi
+          else
+            against="${BEFORE:-}"
+          fi
+          if [ -z "$against" ] || [ "$against" = "0000000000000000000000000000000000000000" ]; then
+            files=$(git ls-files)
+          else
+            # If the comparison cannot be made, run the job rather than skip it.
+            files=$(git diff --name-only "$against" HEAD || git ls-files)
+          fi
+          if printf '%s\n' "$files" | grep -q '^android/'; then
+            echo "android=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "android=false" >> "$GITHUB_OUTPUT"
+            echo "android/ is untouched; nothing to build."
+          fi
+      - name: Set up JDK 17
+        if: steps.changed.outputs.android == 'true'
+        uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Test and assemble
+        if: steps.changed.outputs.android == 'true'
+        run: |
+          # android/ is in the tree before the Gradle wrapper is: until #28 lands there is
+          # nothing to run, and the job stays green.
+          if [ ! -x android/gradlew ]; then
+            echo "android/ has no Gradle wrapper yet; skipping."
+            exit 0
+          fi
+          cd android
+          ./gradlew test assembleDebug

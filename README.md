@@ -1,5 +1,7 @@
 # Amuse
 
+[![CI](https://github.com/Microwave-WYB/amuse/actions/workflows/ci.yml/badge.svg)](https://github.com/Microwave-WYB/amuse/actions/workflows/ci.yml)
+
 An open-source Muse: a personal assistant you chat with, that browses the web in a real Chrome
 you can watch and take over (from a phone, too), and works with your services. One instance per
 person, run with Docker Compose.
@@ -175,7 +177,9 @@ neither Amuse nor the sandbox ever sees).
   with the password is trusted.
 - Use another port: `AMUSE_PUBLISH_PORT=9000` in `.env` (and `AMUSE_PUBLIC_URL=http://localhost:9000`).
 
-Development: [docs/development.md](docs/development.md).
+Development: [docs/development.md](docs/development.md). CI runs `mise run check` — the type checks, every
+package's tests and the Dockerfile check — on every pull request and on `main`, and builds both images;
+running it locally is the same thing.
 
 ## License
 
