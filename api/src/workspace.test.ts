@@ -4,6 +4,7 @@ import { chmodSync, existsSync, linkSync, mkdirSync, mkdtempSync, openSync, read
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
+import sharp from "sharp";
 import { createHost, type Timers } from "@amuse/core";
 import { demoPorts } from "@amuse/demo";
 import { Attachment } from "@amuse/protocol";
@@ -91,6 +92,58 @@ test("a file is uploaded, kept with what it is (mode 600), and served back: imag
     assert.equal(part.status, 206);
     assert.equal(part.headers.get("content-range"), "bytes 2-3/6");
     assert.deepEqual(new Uint8Array(await part.arrayBuffer()), png.subarray(2, 4));
+  } finally {
+    await server.close();
+  }
+});
+
+test("a picture comes with its size and placeholder, and is served scaled down for the page at the widths there are", async () => {
+  const { files, server, upload } = await serve();
+  const http = `http://127.0.0.1:${server.port}`;
+  const get = (id: string, query: string) => fetch(`${http}/files/${id}${query}`, { headers: { cookie: "amuse=s" } });
+  try {
+    const photo = await sharp({ create: { width: 2400, height: 1600, channels: 3, background: "#4a8" } }).jpeg().toBuffer();
+    const sent = Attachment.parse(await (await upload("beach.jpg", "image/jpeg", photo)).json());
+    assert.deepEqual({ width: sent.image?.width, height: sent.image?.height }, { width: 2400, height: 1600 });
+    assert.ok(sent.image && sent.image.placeholder.length > 0);
+    assert.deepEqual(files.find(sent.id)?.attachment.image, sent.image, "kept with it");
+
+    const copy = await get(sent.id, "?w=960");
+    assert.equal(copy.status, 200);
+    assert.equal(copy.headers.get("content-type"), "image/webp");
+    assert.match(copy.headers.get("content-disposition") ?? "", /^inline; filename\*=UTF-8''beach\.webp$/);
+    assert.equal(copy.headers.get("x-content-type-options"), "nosniff");
+    assert.match(copy.headers.get("content-security-policy") ?? "", /sandbox/);
+    assert.match(copy.headers.get("cache-control") ?? "", /immutable/);
+    const bytes = Buffer.from(await copy.arrayBuffer());
+    assert.ok(bytes.length < photo.length);
+    assert.deepEqual(await sharp(bytes).metadata().then((m) => [m.format, m.width, m.height]), ["webp", 960, 640]);
+    // asked again: the same copy
+    assert.deepEqual(Buffer.from(await (await get(sent.id, "?w=960")).arrayBuffer()), bytes);
+
+    // a width not offered, a GIF, a file that is not a picture: as they are
+    const odd = await get(sent.id, "?w=123");
+    assert.equal(odd.headers.get("content-type"), "image/jpeg");
+    assert.deepEqual(Buffer.from(await odd.arrayBuffer()), photo);
+    const gif = await sharp({ create: { width: 30, height: 20, channels: 3, background: "#000" } }).gif().toBuffer();
+    const moving = Attachment.parse(await (await upload("wave.gif", "image/gif", gif)).json());
+    assert.equal(moving.image?.width, 30);
+    assert.equal((await get(moving.id, "?w=480")).headers.get("content-type"), "image/gif");
+    const notes = Attachment.parse(await (await upload("notes.txt", "text/plain", "hi")).json());
+    assert.equal(notes.image, undefined);
+    assert.equal((await get(notes.id, "?w=480")).headers.get("content-type"), "application/octet-stream");
+    // a "picture" that cannot be read has no size, and comes as it is
+    const broken = new Uint8Array([137, 80, 78, 71, 13, 10]);
+    const bad = Attachment.parse(await (await upload("bad.png", "image/png", broken)).json());
+    assert.equal(bad.image, undefined);
+    const served = await get(bad.id, "?w=480");
+    assert.equal(served.headers.get("content-type"), "image/png");
+    assert.deepEqual(new Uint8Array(await served.arrayBuffer()), broken);
+
+    // one Muse sends from the workspace is described too
+    await files.write("screenshots/page.png", await sharp({ create: { width: 640, height: 400, channels: 4, background: "#fff" } }).png().toBuffer(), false);
+    const shared = await files.share("screenshots/page.png");
+    assert.deepEqual([shared.image?.width, shared.image?.height], [640, 400]);
   } finally {
     await server.close();
   }

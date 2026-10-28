@@ -21,6 +21,7 @@ import { type Entry, type Workspace, WorkspaceError, newId } from "@amuse/core";
 import { Attachment } from "@amuse/protocol";
 import { z } from "zod";
 import { type Folder, Missing, copy, kindOf, openFile, presentSync, remove as removeTree, walk, worded } from "./descend.ts";
+import { describe } from "./images.ts";
 
 /** The largest file the server takes. */
 export const MAX_FILE = 50 * 1024 ** 2;
@@ -175,9 +176,11 @@ export function workspace(root: string, index: SentIndex, scratch: string): File
           if (size > MAX_FILE) return null;
           throw error;
         }
+        // read while it is still only the server's, before the sandbox can see it
+        const image = await describe(partial, kind);
         const leaf = await unique(into, clean);
         await rename(partial, into.at(leaf));
-        const attachment: Attachment = { id: newId("f"), name: clean, type: kind, size, path: `${folder}/${leaf}` };
+        const attachment: Attachment = { id: newId("f"), name: clean, type: kind, size, path: `${folder}/${leaf}`, ...(image ? { image } : {}) };
         sent = { ...sent, [attachment.id]: { attachment, by: "user" } };
         saveIndex();
         return attachment;
@@ -305,8 +308,9 @@ export function workspace(root: string, index: SentIndex, scratch: string): File
       saveIndex();
     },
     async share(path) {
-      const { path: rel, type, size } = await store.open(path);
-      const attachment: Attachment = { id: newId("f"), name: basename(rel), type, size, path: rel };
+      const { path: rel, type, size, data } = await store.open(path);
+      const image = await describe(data, type);
+      const attachment: Attachment = { id: newId("f"), name: basename(rel), type, size, path: rel, ...(image ? { image } : {}) };
       sent = { ...sent, [attachment.id]: { attachment, by: "muse" } };
       saveIndex();
       return attachment;

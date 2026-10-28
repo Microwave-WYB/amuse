@@ -3,7 +3,7 @@
  * Ui is local panel state; Actions turn clicks into protocol calls or panel
  * changes. Components get exactly the slices they render.
  */
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, lazy, useEffect, useMemo, useRef, useState } from "react";
 import { connect } from "@amuse/api/client";
 import { createHost, realTimers } from "@amuse/core";
 import { demoPorts, seed } from "@amuse/demo";
@@ -56,6 +56,10 @@ import { TaskDetailSheet } from "./components/TaskDetailSheet";
 import { BrowserButton } from "./components/BrowserButton";
 import { MenuButton, TopBar } from "./components/TopBar";
 import { Viewer } from "./components/Viewer";
+import { pictures } from "./photos.ts";
+
+/** The image viewer, fetched the first time a picture is opened. */
+const PhotoViewer = lazy(() => import("./components/PhotoViewer"));
 
 /**
  * A session and how to let go of it (a socket must be closed, or it reconnects forever), and how to take the
@@ -113,6 +117,14 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
     () => outgoingIn(conversation.entities, outgoing, ui.chat),
     [conversation.entities, outgoing, ui.chat],
   );
+  /** the chat's pictures, those on their way too: what the image viewer moves between */
+  const chatPictures = useMemo(
+    () => pictures([...conversation.entities, ...shownOutgoing.sending]),
+    [conversation.entities, shownOutgoing.sending],
+  );
+  /** the image viewer, once one has been opened: it stays, to fade out as it closes */
+  const [photosOpened, setPhotosOpened] = useState(false);
+  if (ui.photo !== null && !photosOpened) setPhotosOpened(true);
   /** where files go and come from: the server's (the demo keeps none) */
   const files = useMemo(
     () => (where.kind === "server" ? serverFiles(where.rpc) : null),
@@ -431,6 +443,7 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
         void session.call("browser.fit", { id, view }).catch(() => {}),
       stopTask: (id) => call("task.stop", { id }),
       openTaskDetail: (taskDetail) => patch((u) => ({ ...u, taskDetail })),
+      openPhoto: (photo) => patch((u) => ({ ...u, photo })),
       setChats: (chatsOpen) => patch((u) => ({ ...u, chatsOpen })),
       setSidebar: (sidebar) => {
         localStorage.setItem(SIDEBAR, String(sidebar));
@@ -442,11 +455,11 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
       openSkill: (skill) => patch((u) => ({ ...u, skill })),
       // a chat's browsers are its own: the viewer starts over
       openChat: (chat) =>
-        patch((u) => ({ ...u, chat, chatsOpen: false, viewer: null })),
+        patch((u) => ({ ...u, chat, chatsOpen: false, viewer: null, photo: null })),
       newChat: () =>
         void session.call("chats.create", {}).then(
           ({ id }) =>
-            patch((u) => ({ ...u, chat: id, chatsOpen: false, viewer: null })),
+            patch((u) => ({ ...u, chat: id, chatsOpen: false, viewer: null, photo: null })),
           (error: unknown) =>
             patch((u) => ({
               ...u,
@@ -457,7 +470,7 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
       renameChat: (id, title) => call("chats.rename", { id, title }),
       deleteChat: (id) => {
         call("chats.delete", { id });
-        patch((u) => (u.chat === id ? { ...u, chat: MAIN, viewer: null } : u));
+        patch((u) => (u.chat === id ? { ...u, chat: MAIN, viewer: null, photo: null } : u));
       },
       // the avatar travels between the top and the panel
       // the avatar travels with the change: a view transition on a phone, a flight of its own on a wider screen
@@ -497,7 +510,7 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
   // panel's page, sheets and the like keep to themselves
   const swipe = useSwipe({
     open: ui.viewer ? "viewer" : ui.chatsOpen ? "sidebar" : null,
-    blocked: ui.museOpen || ui.settings.open || ui.explainer !== null || ui.taskDetail !== null,
+    blocked: ui.museOpen || ui.settings.open || ui.explainer !== null || ui.taskDetail !== null || ui.photo !== null,
     commit: (panel, open) =>
       panel === "sidebar" ? actions.setChats(open) : open ? actions.openViewer(pillBrowser(conversation)?.id ?? null) : actions.closeViewer(),
   });
@@ -661,6 +674,11 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
             }}
             actions={actions}
           />
+          {photosOpened && files && (
+            <Suspense fallback={null}>
+              <PhotoViewer pictures={chatPictures} open={ui.photo} onShow={actions.openPhoto} />
+            </Suspense>
+          )}
           {pin.sheet}
           {where.kind === "server" && <AccountWatch notify={actions.notify} />}
         </div>
