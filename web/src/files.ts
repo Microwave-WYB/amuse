@@ -1,7 +1,8 @@
 /**
  * The user's files, where there is a server to keep them: uploading one
  * (POST /files, before it is sent with a message) and where each one is
- * (GET /files/<id>, for the page to show). The demo has none.
+ * (GET /files/<id>, for the page to show; ?w=<width> for a picture scaled
+ * down). The demo has none.
  */
 import { createContext, useContext } from "react";
 import { Attachment } from "@amuse/protocol";
@@ -9,6 +10,8 @@ import { Attachment } from "@amuse/protocol";
 export interface FileAccess {
   upload(file: File): Promise<Attachment>;
   url(id: string): string;
+  /** a picture scaled down to one of PREVIEW_WIDTHS, as WebP (photos.ts) */
+  preview(id: string, width: number): string;
 }
 
 /** Next to /rpc on the same server (keeping its token, in the cross-origin dev setup), over http(s). */
@@ -33,6 +36,11 @@ export function serverFiles(rpc: string): FileAccess {
       return Attachment.parse(await response.json());
     },
     url: (id) => beside(rpc, `/files/${encodeURIComponent(id)}`),
+    preview(id, width) {
+      const url = new URL(beside(rpc, `/files/${encodeURIComponent(id)}`));
+      url.searchParams.set("w", String(width));
+      return url.toString();
+    },
   };
 }
 

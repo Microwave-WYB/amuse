@@ -51,6 +51,8 @@ export interface Ui {
   explainer: string | null;
   /** task whose detail sheet is open */
   taskDetail: string | null;
+  /** the picture open in the image viewer (an attachment's id), over everything */
+  photo: string | null;
   /** the item of Amuse's the next message in `chat` replies to (the quote bar over the composer) */
   replying: { chat: string; quote: Quote } | null;
   /** a short message about something that did not work */
@@ -72,6 +74,7 @@ export const initialUi: Ui = {
   viewer: null,
   explainer: null,
   taskDetail: null,
+  photo: null,
   replying: null,
   notice: null,
   noticeAbout: null,
@@ -114,6 +117,8 @@ export interface Actions {
   fit(browserId: string, view: { width: number; height: number } | null): void;
   stopTask(taskId: string): void;
   openTaskDetail(taskId: string | null): void;
+  /** open a picture sent in the chat in the image viewer, or (null) close it */
+  openPhoto(attachmentId: string | null): void;
   setChats(open: boolean): void;
   /** dock the sidebar or collapse it (where there is room for it) */
   setSidebar(docked: boolean): void;
