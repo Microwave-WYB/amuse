@@ -35,6 +35,7 @@ import {
   TaskCard,
 } from "./cards";
 import { RichText, linked } from "./markdown";
+import { Picture } from "./Picture";
 import { BUBBLE, BUBBLE_PAD, type Place, type Side, bottomRound, concentric, corners } from "./shape.ts";
 
 type Message = Prompt | Reply;
@@ -407,9 +408,12 @@ function MessageMenu({
 function Sent({
   attachments,
   mine,
+  onOpen,
 }: {
   attachments: Attachment[];
   mine: boolean;
+  /** open a picture in the image viewer */
+  onOpen: (id: string) => void;
 }) {
   const shown = (a: Attachment) =>
     /^image\/(png|jpeg|gif|webp|avif)$/.test(a.type) || /^video\//.test(a.type);
@@ -421,9 +425,9 @@ function Sent({
       className={`flex max-w-[88%] sm:max-w-[78%] flex-col gap-1.5 ${mine ? "items-end" : "items-start"}`}
     >
       {media.length > 0 && (
-        <div className={single ? "" : "grid grid-cols-2 gap-1.5"}>
+        <div className={single ? "max-w-full" : "grid grid-cols-2 gap-1.5"}>
           {media.map((a) => (
-            <Media key={a.id} file={a} single={single} />
+            <Media key={a.id} file={a} single={single} onOpen={() => onOpen(a.id)} />
           ))}
         </div>
       )}
@@ -435,8 +439,7 @@ function Sent({
 }
 
 /** A picture or video; once its file is gone from the workspace, a card saying so. */
-function Media({ file, single }: { file: Attachment; single: boolean }) {
-  const t = useT();
+function Media({ file, single, onOpen }: { file: Attachment; single: boolean; onOpen: () => void }) {
   const files = useFiles();
   const [gone, setGone] = useState(false);
   if (gone) return <FileCard file={file} gone />;
@@ -454,23 +457,7 @@ function Media({ file, single }: { file: Attachment; single: boolean }) {
         style={{ background: "var(--fill-secondary)" }}
       />
     );
-  return (
-    <a
-      href={files?.url(file.id)}
-      target="_blank"
-      rel="noreferrer"
-      aria-label={t.chat.openFile(file.name)}
-    >
-      <img
-        src={files?.url(file.id)}
-        alt={file.name}
-        loading="lazy"
-        onError={() => setGone(true)}
-        className={`rounded-[18px] object-cover ${fit}`}
-        style={{ background: "var(--fill-secondary)" }}
-      />
-    </a>
-  );
+  return <Picture file={file} single={single} onOpen={onOpen} onGone={() => setGone(true)} />;
 }
 
 /** A file as a card: its name and size, to open or download; or that it was deleted. */
@@ -597,7 +584,7 @@ function Bubble({
         <QuoteChip quote={item.quote} reveal={reveal} />
       )}
       {attachments.length > 0 && (
-        <Sent attachments={attachments} mine={isUser} />
+        <Sent attachments={attachments} mine={isUser} onOpen={actions.openPhoto} />
       )}
       {(item.text !== "" || attachments.length === 0) && (
         <div

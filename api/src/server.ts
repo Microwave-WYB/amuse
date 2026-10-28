@@ -17,7 +17,7 @@
  */
 import { type IncomingMessage, type ServerResponse, createServer } from "node:http";
 import { pipeline } from "node:stream";
-import type { Session } from "@amuse/protocol";
+import { PREVIEW_WIDTHS, type Session } from "@amuse/protocol";
 import type { WebSocket } from "ws";
 import { Cols, Rows } from "@amuse/sandbox";
 import { WebSocketServer } from "ws";
@@ -26,6 +26,7 @@ import type { Call } from "@amuse/protocol";
 import { type Access, PasswordRejected, type Seen } from "./access.ts";
 import { type Pin, PinRejected, PinRequired, type Tried, type Unlocks, LENGTHS, wellFormed } from "./pin.ts";
 import { type FileStore, shownInline } from "./workspace.ts";
+import { previews, scalable, scaled } from "./images.ts";
 import { type Live, attach, thumbnail } from "./live.ts";
 import { serve } from "./rpc.ts";
 import { TERMINAL_CLOSED, attachTerminal } from "./terminal.ts";
@@ -438,7 +439,10 @@ export function listen({ session, live, terminal, files: uploads, web, returned,
    * GET /files/<id> → the file. Images and videos are shown in the page; anything
    * else only downloads. Nothing served runs: no sniffing, and a sandbox for
    * whatever is opened on its own.
+   * GET /files/<id>?w=<one of PREVIEW_WIDTHS> → a picture scaled down to that width, as WebP, for the chat (images.ts);
+   * anything that is not a picture to scale, or one that cannot be read, comes as it is.
    */
+  const copies = previews();
   const file = async (req: IncomingMessage, url: URL, res: ServerResponse) => {
     if (!uploads || !allowed(req)) return void res.writeHead(uploads ? 401 : 404).end();
     if (url.pathname === "/files" && req.method === "POST") {
@@ -464,6 +468,30 @@ export function listen({ session, live, terminal, files: uploads, web, returned,
       "cache-control": "private, max-age=31536000, immutable",
       "accept-ranges": "bytes",
     };
+    const width = Number(url.searchParams.get("w"));
+    if (PREVIEW_WIDTHS.some((w) => w === width) && scalable(attachment.type)) {
+      const { mtimeMs } = await handle.stat();
+      let original: Buffer | undefined;
+      // a copy of the file as it is now: one Amuse has rewritten is scaled again
+      const copy = await copies
+        .get(`${attachment.id} ${size} ${mtimeMs} ${width}`, async () => scaled((original = await handle.readFile()), width))
+        .catch(() => null);
+      // not a picture after all: its bytes as they are, if they were read
+      const sent = copy ?? original;
+      if (sent) {
+        await handle.close();
+        const name = copy ? `${attachment.name.replace(/\.[^.]*$/, "")}.webp` : attachment.name;
+        return void res
+          .writeHead(200, {
+            ...headers,
+            "content-type": copy ? "image/webp" : attachment.type,
+            "content-disposition": `inline; filename*=UTF-8''${encodeURIComponent(name)}`,
+            "accept-ranges": "none",
+            "content-length": sent.length,
+          })
+          .end(sent);
+      }
+    }
     // a video seeks by asking for a range of it
     const range = req.headers.range?.match(/^bytes=(\d*)-(\d*)$/);
     if (range && size > 0) {

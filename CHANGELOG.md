@@ -17,6 +17,7 @@ What changed in each release of Amuse, for the people who run it. The format fol
 - **The PIN is optional, and `amuse-admin reset-pin` leaves it off.** A reset no longer asks for a new PIN on the next visit: the PIN is off until you set one in Settings › Security, where a **Use a PIN** switch turns it on and off (the password, and the PIN there is). (#66)
 
 ### Added
+- Pictures in the chat open in a proper viewer: pinch or double-tap to zoom (the mouse wheel on a computer) and drag to look around; swipe left or right for the chat's other pictures (the arrow keys on a computer); swipe up or down to close it, the picture following your finger as the black behind it fades (or press Esc, or Back on a phone). Zooming in brings in the full-resolution original. (#83)
 - Amuse can offer a few short answers under its message when the next step is one of a few clear choices. Tap one to send it as your reply: it turns solid with a check and the others dim. Once you write something else, they stop being tappable.
 - A built-in daily schedule, Tidy terminals, closes the shared terminals nobody is using (idle shells untouched for a day, and the tabs they leave empty), and never one where something is running. Pause or change it in Schedules like any other.
 - Amuse closes the terminals it opened for a task once the task is done, keeping only what still runs for you.
@@ -52,6 +53,7 @@ What changed in each release of Amuse, for the people who run it. The format fol
 - After an update, Amuse tells you what you can do now: it reads what the new version added and changed (the operator-only entries left out) and says it in one short message, in your language, picking what matters to you. Once, then never again: a restart with nothing new says nothing, and a fresh install says nothing at all. (#64)
 
 ### Changed
+- Pictures in the chat load fast and never draw line by line: each has its place and a soft blurred preview from the start, and comes into focus once it has fully loaded. The chat fetches a copy sized for your screen instead of the original, so a phone photo of several megabytes comes down as a copy of a hundred kilobytes or so. Pictures sent before this update still load the smaller copy, without the blurred preview. (#83)
 - On a phone, a sheet that comes up from the bottom (a form, a key, a confirmation) closes when you pull it down by its handle or anywhere on it, or flick it down; a short pull springs back.
 - Voice no longer offers Fireworks: it has retired the speech-to-text service Amuse called. OpenAI, Groq or your own server remain, and an instance whose speech service was Fireworks falls back to the first of them with a key (or asks, if there is none).
 - A secret shown on its Vault page stays on one line, so the page does not jump; a long one scrolls sideways.

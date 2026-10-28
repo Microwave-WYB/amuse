@@ -27,7 +27,19 @@ export const Attachment = z.object({
   size: z.int().nonnegative(),
   /** where it was in the workspace when sent, e.g. "user/media_library/receipt.png" */
   path: z.string().min(1).max(1024),
+  /**
+   * A picture's size in pixels, as shown (after its EXIF rotation), and a ThumbHash of it (base64): what a client
+   * lays it out by and draws, blurred, before the picture itself has come. Absent for anything else, a picture the
+   * server could not read, and pictures sent before it was kept.
+   */
+  image: z.object({ width: z.int().positive(), height: z.int().positive(), placeholder: z.string().max(100) }).optional(),
 });
+
+/**
+ * The widths (px) the server scales a picture down to for the page, as WebP: GET /files/<id>?w=<width>. The original
+ * (GET /files/<id>) is for the image viewer, zoomed in.
+ */
+export const PREVIEW_WIDTHS = [480, 960, 1600] as const;
 
 /**
  * The item a message replies to, as it was when the user replied: kept with the message, so it reads

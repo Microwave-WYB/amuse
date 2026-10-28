@@ -534,3 +534,12 @@ body {
     animation: none;
   }
 }
+
+/* the image viewer (PhotoViewer.tsx): pulled up or down, the picture follows the finger as it is and the black behind
+   it fades; the lightbox lowers --yarl__pull_opacity from 1 to 0.5 over the first 60px of the pull */
+.photo-viewer .yarl__container {
+  background-color: rgb(0 0 0 / calc(1 - (1 - var(--yarl__pull_opacity, 1)) * 1.5));
+}
+.photo-viewer .yarl__carousel {
+  opacity: 1;
+}
