@@ -3,8 +3,7 @@
  *   demo    no server configured: the real core runs in the browser with scripted ports
  *   server  VITE_AMUSE_URL (a full ws URL), or the same origin the app was served from
  *           (VITE_AMUSE_MODE=same-origin: the Docker build, and dev through Vite's proxy)
- *   locked  same-origin, but this browser has no session yet; `ready`: the master password is set;
- *           `waiting`: the password was given here, and this device waits for a trusted one to approve it
+ *   locked  same-origin, but this browser has no session yet; `ready`: the master password is set
  * The master password opens a session the server keeps as an HttpOnly cookie, so scripts, URLs
  * and logs never see it.
  */
@@ -12,7 +11,7 @@ import { activeT } from "./i18n/language.ts";
 
 export type Connection =
   | { kind: "demo" }
-  | { kind: "locked"; ready: boolean; waiting: boolean }
+  | { kind: "locked"; ready: boolean }
   | {
       kind: "server";
       rpc: string;
@@ -71,34 +70,23 @@ export async function connection(): Promise<Connection> {
   startedTo("asking the server (/unlock)");
   const unlocked = await fetch("/unlock").catch(() => null);
   startedTo(unlocked ? `the server answered /unlock (${unlocked.status})` : "/unlock could not be reached");
-  if (unlocked?.status === 202) return { kind: "locked", ready: true, waiting: true };
   if (unlocked?.status !== 204) {
     const said: unknown = await unlocked?.json().catch(() => null);
     const ready = typeof said === "object" && said !== null && "ready" in said ? said.ready !== false : true;
-    return { kind: "locked", ready, waiting: false };
+    return { kind: "locked", ready };
   }
   const rpc = new URL("/rpc", location.href);
   rpc.protocol = location.protocol === "https:" ? "wss:" : "ws:";
   return server(rpc.toString());
 }
 
-/**
- * Open this browser with the password (`pin`: set both, the first time); reloads when in. "waiting": this device
- * waits for a trusted one's approval; else why not.
- */
-export async function enter(password: string, pin: string | null): Promise<string | null | "waiting"> {
+/** Open this browser with the password (`pin`: set both, the first time); reloads when in, else says why not. */
+export async function enter(password: string, pin: string | null): Promise<string | null> {
   const response = await post(pin !== null ? "/setup" : "/unlock", pin !== null ? { password, pin } : { password }).catch(() => null);
   if (!response) return activeT().common.serverUnreachable;
   if (!response.ok) return reason(response);
-  if (response.status === 202) return "waiting";
   location.replace(location.pathname + location.search);
   return null;
-}
-
-/** While this device waits for approval: whether it is in now (the poll that finds it approved opens its session). */
-export async function admitted(): Promise<boolean> {
-  const response = await fetch("/unlock", { cache: "no-store" }).catch(() => null);
-  return response?.status === 204;
 }
 
 /** Lock this browser: it needs the password again. */

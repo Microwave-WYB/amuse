@@ -82,7 +82,7 @@ export default function App() {
   useEffect(() => void connection().then(setWhere), []);
   if (!where) return null;
   return where.kind === "locked" ? (
-    <Unlock ready={where.ready} waiting={where.waiting} />
+    <Unlock ready={where.ready} />
   ) : (
     <Chat where={where} />
   );

@@ -36,7 +36,7 @@ test("the dry run lists what is pending and what it touches, and changes nothing
 test("migrate runs them; after it, the dry run has nothing to do", () => {
   const dir = copy();
   run("--data", dir, "migrate");
-  assert.match(run("--data", dir, "migrate", "--dry-run"), /8 migrations applied\nNothing to run\./);
+  assert.match(run("--data", dir, "migrate", "--dry-run"), /9 migrations applied\nNothing to run\./);
   assert.ok(existsSync(join(dir, "events.jsonl.bak")));
 });
 
@@ -58,10 +58,10 @@ test("reset-password forgets the password and the sessions, and the next visit c
   assert.match(run("--data", dir, "reset-password"), /forgotten/);
   const access = sqliteAccess(await openData(locate({ AMUSE_DATA: dir }), () => {}));
   assert.equal(access.ready(), false);
-  assert.equal((await access.setup("a brand new password", null, seen)).kind, "in");
+  assert.ok(access.valid((await access.setup("a brand new password", null, seen)).session));
 });
 
-test("reset-pin forgets the PIN and its lockout and signs every device out; reset-devices trusts none, so the next password trusts its own", async () => {
+test("reset-pin forgets the PIN and its lockout and signs every device out; reset-devices forgets every device, each back with the password", async () => {
   const dir = copy();
   run("--data", dir, "migrate");
   const where = locate({ AMUSE_DATA: dir });
@@ -79,14 +79,13 @@ test("reset-pin forgets the PIN and its lockout and signs every device out; rese
   assert.equal(sqlitePin(afterPin).off(), true, "the PIN is off, not asked for, until one is set");
   assert.equal(sqlitePin(afterPin).reminder(), null);
   assert.equal(query(afterPin, z.object({ n: z.number() }), "select count(*) as n from sessions")[0]?.n, 0);
-  // the devices are still trusted: a new one waits for them
-  assert.equal((await sqliteAccess(afterPin).login("fixture-password-0.1.0", null, seen))?.kind, "waiting");
+  assert.ok(sqliteAccess(afterPin).devices().length > 0, "the devices stay listed");
   afterPin.close();
 
-  assert.match(run("--data", dir, "reset-devices"), /No device is trusted now/);
+  assert.match(run("--data", dir, "reset-devices"), /Every device is forgotten and signed out/);
   const afterDevices = await openData(where, () => {});
   assert.deepEqual(sqliteAccess(afterDevices).devices(), []);
-  assert.equal((await sqliteAccess(afterDevices).login("fixture-password-0.1.0", null, seen))?.kind, "in", "no one is left to approve: this one is trusted");
+  assert.ok((await sqliteAccess(afterDevices).login("fixture-password-0.1.0", null, seen))?.device, "the password signs a device in again, as a new one");
   afterDevices.close();
 });
 
@@ -125,7 +124,7 @@ test("export, chats and reset-password refuse when migrations are pending, and d
   for (const command of ["export", "chats", "reset-password"]) {
     const result = fails("--data", dir, command);
     assert.equal(result.status, 1, command);
-    assert.match(result.stderr, /7 migrations are pending: run `amuse-admin migrate` first/, command);
+    assert.match(result.stderr, /8 migrations are pending: run `amuse-admin migrate` first/, command);
   }
   const after = openDatabase(join(dir, "amuse.db"));
   assert.deepEqual(applied(after), ["20261023100000"]);
@@ -155,7 +154,8 @@ test("rollback asks for --yes, copies the database first, and never applies what
 test("rollback of a migration with no way back changes nothing and makes no copy", () => {
   const dir = copy();
   run("--data", dir, "migrate");
-  // what the changelog announces can be undone, and the PIN, the devices and its being optional with it; the import before them cannot
+  // dropping device approval can be undone, and what the changelog announces, and the PIN, the devices and its being optional with it; the import before them cannot
+  assert.match(run("--data", dir, "rollback", "--yes"), /undid 20261101040750_no_device_approval/);
   assert.match(run("--data", dir, "rollback", "--yes"), /undid 20261024120000_optional_pin/);
   assert.match(run("--data", dir, "rollback", "--yes"), /undid 20261024034628_announced_changes/);
   assert.match(run("--data", dir, "rollback", "--yes"), /undid 20261023234842_browser_sessions/);

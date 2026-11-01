@@ -7,8 +7,6 @@ import type { Said } from "./pin.ts";
 
 export interface DeviceInfo {
   id: string;
-  trusted: boolean;
-  waiting: boolean;
   agent: string;
   address: string;
   at: string;
@@ -52,8 +50,6 @@ function stateOf(raw: unknown): AccountState | null {
     device: textOrNull(raw["device"]),
     devices: raw["devices"].filter(isRecord).map((d) => ({
       id: text(d["id"]),
-      trusted: d["trusted"] === true,
-      waiting: d["waiting"] === true,
       agent: text(d["agent"]),
       address: text(d["address"]),
       at: text(d["at"]),
@@ -106,6 +102,4 @@ export const remindLater = () => change("/account/pin/later");
 export const setUnlockMinutes = (minutes: number) => change("/account/pin/minutes", { minutes });
 /** Change the password (behind the PIN): every other device has to enter the new one. */
 export const changePassword = (current: string, next: string) => change("/password", { current, next });
-export const approveDevice = (id: string) => change("/account/devices/approve", { id });
-export const denyDevice = (id: string) => change("/account/devices/deny", { id });
 export const revokeDevice = (id: string) => change("/account/devices/revoke", { id });

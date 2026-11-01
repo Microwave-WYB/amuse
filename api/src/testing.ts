@@ -7,21 +7,17 @@ import type { Pin, Unlocks } from "./pin.ts";
 
 /** In with `session` (or, by default, with anything at all). */
 export function letIn(session = "session", valid: (given: string) => boolean = () => true): Access {
-  const entry: Entry = { kind: "in", session, device: null };
+  const entry: Entry = { session, device: null };
   return {
     ready: () => true,
     setup: async () => entry,
     login: async () => entry,
-    admitted: () => null,
-    waiting: () => false,
     valid,
     logout: () => {},
     change: async () => session,
     matches: async () => true,
     deviceOf: () => null,
     devices: () => [],
-    approve: () => false,
-    deny: () => {},
     revoke: () => {},
   };
 }
