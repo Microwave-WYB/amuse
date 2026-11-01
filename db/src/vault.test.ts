@@ -195,7 +195,7 @@ test("an import that cannot be done leaves every old file as it was, makes no ke
   // put right, it is tried again
   writeFileSync(join(dir, "sandbox-secrets.json"), JSON.stringify(SANDBOX.slice(0, 1)));
   const again = await migrate(db, known, { backups: join(dir, "backups"), context: context(dir, secretsDir) });
-  assert.deepEqual(again.ran.map((m) => m.name), ["import_secrets", "account_security", "browser_sessions", "announced_changes", "optional_pin"], "the import, and the migrations that come after it");
+  assert.deepEqual(again.ran.map((m) => m.name), ["import_secrets", "account_security", "browser_sessions", "announced_changes", "optional_pin", "no_device_approval"], "the import, and the migrations that come after it");
   assert.equal(query(db, count, "select count(*) as n from secrets")[0]?.n, 6);
 });
 

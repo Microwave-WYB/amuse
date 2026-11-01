@@ -181,7 +181,7 @@ test("resetting the PIN forgets it and its lockout, and signs every device out",
   const pin = sqlitePin(db);
   await pin.set("112233");
   for (let i = 0; i < 5; i++) await pin.check("000000");
-  db.exec("insert into devices (id, digest, trusted, asked, agent, address, at, seen) values ('d', 'x', 1, null, '', '', '', '')");
+  db.exec("insert into devices (id, digest, agent, address, at, seen) values ('d', 'x', '', '', '', '')");
   db.exec("insert into sessions (digest, device) values ('s', 'd')");
   resetPin(db);
   assert.equal(pin.isSet(), false);
@@ -189,10 +189,10 @@ test("resetting the PIN forgets it and its lockout, and signs every device out",
   assert.equal(pin.off(), true, "it is off until one is set");
   assert.equal(pin.reminder(), null);
   assert.equal(query(db, z.object({ n: z.number() }), "select count(*) as n from sessions")[0]?.n, 0);
-  assert.equal(query(db, z.object({ n: z.number() }), "select count(*) as n from devices")[0]?.n, 1, "the device stays trusted");
+  assert.equal(query(db, z.object({ n: z.number() }), "select count(*) as n from devices")[0]?.n, 1, "the device stays listed");
 });
 
-test("the migration makes the PIN's row with no PIN, and every session from before a trusted device of its own; down undoes it", async () => {
+test("the migration makes the PIN's row with no PIN, and every session from before a device of its own; down undoes it", async () => {
   const dir = tempFolder("amuse-pin-migration-");
   const secretsDir = join(dir, "secret-key");
   mkdirSync(secretsDir, { mode: 0o700 });
@@ -205,11 +205,11 @@ test("the migration makes the PIN's row with no PIN, and every session from befo
   await migrate(db, known, { backups: join(dir, "backups"), context });
   assert.ok(applied(db).includes("20261023120000"));
   assert.equal(sqlitePin(db).isSet(), false);
-  const Session = z.object({ digest: z.string(), device: z.string(), trusted: z.number(), cookie: z.string().nullable() });
-  const rows = query(db, Session, "select s.digest, s.device, d.trusted, d.digest as cookie from sessions s join devices d on d.id = s.device order by s.position");
+  const Session = z.object({ digest: z.string(), device: z.string(), cookie: z.string().nullable() });
+  const rows = query(db, Session, "select s.digest, s.device, d.digest as cookie from sessions s join devices d on d.id = s.device order by s.position");
   assert.deepEqual(rows, [
-    { digest: "one", device: "before-1", trusted: 1, cookie: null },
-    { digest: "two", device: "before-2", trusted: 1, cookie: null },
+    { digest: "one", device: "before-1", cookie: null },
+    { digest: "two", device: "before-2", cookie: null },
   ]);
   // a device goes with its sessions
   db.exec("delete from devices where id = 'before-1'");

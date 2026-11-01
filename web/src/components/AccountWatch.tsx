@@ -2,17 +2,15 @@
  * What the account asks of a signed-in device, kept an eye on while the app is open (on a server only):
  *   - the reminders, like Signal's: set a PIN when there is none (an instance from before the PIN, say), and enter
  *     it after a week without, so it is not forgotten. "Later" puts either off a day, on the server, for every device;
- *   - a new device waiting to sign in: its card, to approve (with the PIN) or turn away;
  *   - the PIN locked after wrong tries, wherever they were made: said in the chat's notice;
  *   - the unlock ends at once when the app goes to the background or the page closes.
  */
 import { useEffect, useRef, useState } from "react";
-import { DeviceSheet } from "./DeviceSheet";
 import { untilWords, usePin } from "./PinSheet";
 import { useT } from "../i18n/react.ts";
 import { type AccountState, accountState, lockPin } from "../account.ts";
 
-/** how often the account is asked while the app is in view: a waiting device's card comes within this */
+/** how often the account is asked while the app is in view: a reminder put off, or a lockout, from another device comes within this */
 const POLL_MS = 5000;
 
 export function AccountWatch({ notify }: { notify: (message: string) => void }) {
@@ -21,8 +19,6 @@ export function AccountWatch({ notify }: { notify: (message: string) => void }) 
   const [state, setState] = useState<AccountState | null>(null);
   /** a reminder's sheet is open */
   const reminding = useRef(false);
-  /** the waiting devices answered (or put aside) here */
-  const answered = useRef(new Set<string>());
   const lockedSaid = useRef<string | null>(null);
   const look = () => void accountState().then(setState);
 
@@ -58,14 +54,5 @@ export function AccountWatch({ notify }: { notify: (message: string) => void }) 
     lockedSaid.current = locked;
   }, [locked, notify, t]);
 
-  const waiting = state?.devices.find((d) => d.waiting && !answered.current.has(d.id)) ?? null;
-  return (
-    <DeviceSheet
-      device={waiting}
-      onClose={() => {
-        if (waiting) answered.current.add(waiting.id);
-        look();
-      }}
-    />
-  );
+  return null;
 }

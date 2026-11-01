@@ -102,21 +102,21 @@ test("five wrong PINs lock it, for every device; changing the PIN needs the pass
   }
 });
 
-test("approving and revoking a device take the PIN; a revoked device's open socket is closed", async () => {
+test("removing a device takes the PIN; a removed device's open socket is closed", async () => {
   const { post, socket, access, close } = await instance();
   try {
-    const asked = await access.login("correct horse", null, { agent: "phone", address: "100.64.0.9" });
-    const waiting = access.devices().find((d) => d.waiting);
-    assert.ok(asked?.kind === "waiting" && waiting);
+    const other = await access.login("correct horse", null, { agent: "phone", address: "100.64.0.9" });
+    const phone = access.devices().find((d) => d.agent === "phone");
+    assert.ok(other && phone);
     assert.equal((await post("/account/pin/lock")).status, 204);
-    assert.equal((await post("/account/devices/approve", { id: waiting.id })).status, 403);
+    assert.equal((await post("/account/devices/revoke", { id: phone.id })).status, 403);
     assert.equal((await post("/account/pin/unlock", { pin: "135790" })).status, 204);
-    assert.equal((await post("/account/devices/approve", { id: waiting.id })).status, 204);
-    assert.equal((await post("/account/devices/approve", { id: waiting.id })).status, 404, "it waits no more");
+    assert.equal((await post("/account/devices/revoke", { id: phone.id })).status, 204);
+    assert.equal(access.valid(other.session), false);
 
-    // this device, revoked: its socket goes at once
+    // this device, removed: its socket goes at once
     const rpc = await socket();
-    const mine = access.devices().find((d) => d.id !== waiting.id);
+    const mine = access.devices()[0];
     assert.equal((await post("/account/devices/revoke", { id: mine?.id ?? "" })).status, 204);
     await rpc.closed;
   } finally {

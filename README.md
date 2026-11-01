@@ -27,17 +27,17 @@ Run amuse where only you can reach it (your machine, a network or VPN you trust)
 password right away: the first visit sets it.
 
 The PIN authorizes sensitive actions (loosening a permission, "Always allow" on a card, a new model, voice or
-Composio key or speech server, approving a device, changing the password or the PIN). The server checks it for each;
+Composio key or speech server, removing a device, changing the password or the PIN). The server checks it for each;
 an unlock lasts 5 minutes after the last such action (1, 15 or 30 in Settings › Security), 30 minutes at most, and
 ends when the app goes to the background. Five wrong tries lock it for 15 minutes, then twice as long each time. It is
 optional: Settings › Security has a **Use a PIN** switch (the password, and the PIN there is), and the first prompt
 that asks for one has a "Don't use a PIN" link. With it off, sensitive actions go through without asking and nothing
 is reminded; setting one again turns it back on.
 
-Signing in on another device takes the password, then approval on a device already signed in: a card there shows the
-new one, and approving takes the PIN. A Chrome policy blocks Amuse's own address in its own browsers, as one extra
-layer: they do not send the `X-Amuse-Agent` mark yet (their pages run in Playwright contexts, where an extension
-cannot add it), so a browser that reaches Amuse anyway meets only the password and the device approval.
+Signing in on another device takes the password alone, and Settings › Security lists every device signed in. A
+Chrome policy blocks Amuse's own address in its own browsers, as one extra layer: they do not send the
+`X-Amuse-Agent` mark yet (their pages run in Playwright contexts, where an extension cannot add it), so a browser
+that reaches Amuse anyway meets only the password.
 
 ## Other devices
 
@@ -181,13 +181,13 @@ neither Amuse nor the sandbox ever sees).
 - Update: `git pull && docker compose up -d --build`. Before an update that changes the stored data, Amuse copies its database to `backups/` in the data volume;
   `docker compose exec amuse amuse-admin migrate --dry-run` shows beforehand what would change.
 - Change the password or the PIN, lock a device, or remove one: Settings › Security. Changing the password signs every
-  other device out; they stay trusted.
+  other device out, until it signs in with the new one.
 - Forgot the password: `docker compose exec amuse amuse-admin reset-password`,
   then set a new one on the next visit. Your chats and keys stay.
 - Forgot the PIN: `docker compose exec amuse amuse-admin reset-pin`. Every device is signed out; sign in, and the PIN
   is off until you set one in Settings › Security.
-- Lost every device you signed in on: `docker compose exec amuse amuse-admin reset-devices`. The next device to sign in
-  with the password is trusted.
+- Sign every device out at once: `docker compose exec amuse amuse-admin reset-devices`. Each signs in again with the
+  password.
 - Use another port: `AMUSE_PUBLISH_PORT=9000` in `.env` (and `AMUSE_PUBLIC_URL=http://localhost:9000`).
 
 Development: [docs/development.md](docs/development.md). CI runs `mise run check` — the type checks, every
