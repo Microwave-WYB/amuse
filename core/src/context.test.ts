@@ -220,3 +220,15 @@ test("memory_search over chats finds and gives a long reply and a schedule whole
   assert.match(recall(state, "tail-7"), /\n\nSecond paragraph .* tail-7/s);
   assert.match(recall(state, "vitamin D"), /and vitamin D last\./);
 });
+
+test("the newest closed block stays whole in the chat turn's window; it is shortened once a block closes after it", () => {
+  // blocks of 1 000: eight short turns close two blocks, then a long briefing closes the third, and three short replies follow it
+  const before = [...chatOf(10, 280), briefing(9), reply("r-a", "ok"), reply("r-b", "sure"), reply("r-c", "done"), prompt("p-a", "thanks")];
+  const chat = context(stateOf(...before), { full: 24_000, brief: 8_000 }, undefined, 1_000, true);
+  assert.match(chat, /tail-9/, "the briefing is whole while its block is the newest closed one");
+  // more chat closes a block after it: the briefing's block is no longer the newest, so it is shortened now
+  const after = [...before, ...chatOf(4, 280).map((e) => ({ ...e, id: `${e.id}-x` }))];
+  const later = context(stateOf(...after), { full: 24_000, brief: 8_000 }, undefined, 1_000, true);
+  assert.doesNotMatch(later, /tail-9/, "the briefing is shortened once a block closes after it");
+  assert.match(later, /Morning briefing 9/);
+});

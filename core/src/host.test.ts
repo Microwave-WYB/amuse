@@ -775,3 +775,22 @@ test("a message about an error reaches the agent with the error and its detail, 
   assert.ok(recorded?.kind === "prompt" && recorded.quote?.kind === "error");
   assert.equal(recorded.quote.text, about.message);
 });
+
+test("a helper's context has an old long reply whole; the chat turn's own window has it shortened", async () => {
+  const { ports, io } = capture();
+  const host = createHost(ports);
+  const at = "2026-10-20T08:00:00Z";
+  const say = (id: string, text: string) => io()?.emit({ kind: "upserted", entity: { kind: "reply", id, at, text, streaming: false, attachments: [], suggestions: [], chosen: null } });
+  await host.call("chat.send", { chat: "main", text: "draft the mail", timezone: "UTC", attachments: [] });
+  say("draft", `Dear Li,\n\n${"p".repeat(600)}\n\nBest, ${"q".repeat(500)} end-of-draft`);
+  // enough chat after it to close its block and one more, with the latest replies after it
+  for (let i = 0; i < 8; i++) {
+    await host.call("chat.send", { chat: "main", text: `${i} ${"u".repeat(1_000)}`, timezone: "UTC", attachments: [] });
+    say(`r${i}`, `${i} ${"a".repeat(1_000)}`);
+  }
+  const agent = io();
+  assert.ok(agent);
+  assert.match(agent.context(), /end-of-draft/, "a helper, or read_chat, has the draft whole");
+  assert.doesNotMatch(agent.context("chat"), /end-of-draft/, "the chat turn's window has it shortened");
+  assert.match(agent.context("chat"), /Dear Li,/);
+});
