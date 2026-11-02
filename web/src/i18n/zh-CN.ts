@@ -519,6 +519,7 @@ export const zhCN = {
       waiting_for_agents: "等待子任务",
     },
     needsApproval: "需要审批",
+    connecting: "正在连接…",
   },
   cards: {
     openTask: "查看任务详情",

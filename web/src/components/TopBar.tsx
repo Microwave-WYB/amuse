@@ -4,7 +4,7 @@
  * line ("is responding", "Re-observing page", ...).
  */
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { List, Menu, PanelLeftClose, ShieldAlert, Wrench, X } from "lucide-react";
+import { List, LoaderCircle, Menu, PanelLeftClose, ShieldAlert, Wrench, X } from "lucide-react";
 import type { State } from "@amuse/protocol";
 import type { Actions } from "../ui.ts";
 import type { Swipe } from "../useSwipe.ts";
@@ -14,10 +14,14 @@ import { museAvatar } from "../transition.ts";
 import { useT } from "../i18n/react.ts";
 import { barButton, barButtonLook, barIcon } from "./bar";
 
-const LINE_ICONS = { list: List, tool: Wrench, approval: ShieldAlert } as const;
+const LINE_ICONS = { list: List, tool: Wrench, approval: ShieldAlert, connecting: LoaderCircle } as const;
 
-/** The top bar; while the Muse panel is open, the avatar is over there (it travels, see transition.ts). */
-export function TopBar({ conversation, museOpen, actions }: { conversation: State; museOpen: boolean; actions: Actions }) {
+/**
+ * The top bar; while the Muse panel is open, the avatar is over there (it travels, see transition.ts). `connecting`:
+ * the link to the server is not live, which the badge says over what Muse was doing (that may be out of date).
+ */
+export function TopBar({ conversation, connecting, museOpen, actions }: { conversation: State; connecting: boolean; museOpen: boolean; actions: Actions }) {
+  const t = useT();
   return (
     <header
       className="pointer-events-none absolute inset-x-0 top-0 z-20 flex items-center justify-between px-3 py-2"
@@ -44,7 +48,7 @@ export function TopBar({ conversation, museOpen, actions }: { conversation: Stat
           >
             A
           </button>
-          <AvatarBadge line={agentLine(conversation)} />
+          <AvatarBadge line={connecting ? { icon: "connecting", text: t.status.connecting } : agentLine(conversation, t)} />
         </div>
       )}
 
@@ -131,7 +135,7 @@ function BadgeLine({ line, className, onAnimationEnd }: { line: AgentLine; class
       style={{ color: "var(--text-secondary)" }}
       onAnimationEnd={onAnimationEnd}
     >
-      <Icon size={12} />
+      <Icon size={12} className={line.icon === "connecting" ? "animate-spin" : undefined} />
       {line.text}
     </span>
   );
