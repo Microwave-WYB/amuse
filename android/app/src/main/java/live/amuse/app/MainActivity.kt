@@ -56,6 +56,8 @@ class MainActivity : ComponentActivity() {
     private var microphoneRequest: PermissionRequest? = null
     private var permissionDialogInFlight = false
     private var microphoneResult: Boolean? = null
+    private val savedFiles by lazy { getSharedPreferences("amuse_downloads", MODE_PRIVATE) }
+    private val downloading = mutableSetOf<String>()
     /** A new default network (Wi-Fi to mobile data, say) while in front: the page checks its socket, which may have died with the old one. */
     private val networkChanges = object : ConnectivityManager.NetworkCallback() {
         override fun onAvailable(network: Network) { runOnUiThread { if (foreground) tellPageInFront() } }
@@ -441,6 +443,7 @@ class MainActivity : ComponentActivity() {
             override fun onPageFinished(view: WebView, url: String) {
                 if (view === webView && state.server.contains(url)) {
                     state = state.copy(loading = false, progress = 100, canGoBack = view.canGoBack()); captureSession(); cookies.flush()
+                    reportSavedFiles(view)
                 }
             }
             override fun doUpdateVisitedHistory(view: WebView, url: String?, isReload: Boolean) {
@@ -473,11 +476,20 @@ class MainActivity : ComponentActivity() {
 
     private fun connectionFailed(message: String) { state = state.copy(loading = false, connectionError = message) }
 
+    /**
+     * Saves a download from the server in Downloads/Amuse, under the name the server gives (RFC 5987 `filename*`,
+     * which URLUtil.guessFileName ignores: that is how files became `f-<id>.bin`). A sent file's card hears how
+     * far it got and why it failed; tapping a file already saved opens that copy instead.
+     */
     private fun download(url: String, agent: String, disposition: String?, mime: String?) {
         val server = state.server
         val cookie = cookies.getCookie(server.home)
+        val id = Downloads.fileId(Uri.parse(url).path)
+        if (id != null && id in downloading) return
         lifecycleScope.launch {
-            state = state.copy(notice = "Saving file…")
+            if (id != null && openSaved(id)) return@launch
+            id?.let { downloading += it; reportDownload(Downloads.report(it, "progress", 0, 0)) }
+            var reason = "offline"
             val result = runCatching { withContext(Dispatchers.IO) {
                 var location = URL(url)
                 var connection: HttpsURLConnection? = null
@@ -494,26 +506,88 @@ class MainActivity : ComponentActivity() {
                             location = URL(location, requireNotNull(current.getHeaderField("Location")))
                             current.disconnect(); connection = null; check(redirect < 5); continue
                         }
-                        check(current.responseCode in 200..299)
-                        val name = URLUtil.guessFileName(location.toString(), current.getHeaderField("Content-Disposition") ?: disposition,
-                            current.contentType ?: mime).replace(Regex("[/\\\\]"), "_")
+                        if (current.responseCode !in 200..299) { reason = "server"; error("HTTP ${current.responseCode}") }
+                        val header = current.getHeaderField("Content-Disposition") ?: disposition
+                        val name = Downloads.fileName(header)
+                            ?: URLUtil.guessFileName(location.toString(), header, current.contentType ?: mime).replace(Regex("[/\\\\]"), "_")
+                        val type = Downloads.type(current.contentType ?: mime,
+                            MimeTypeMap.getSingleton().getMimeTypeFromExtension(name.substringAfterLast('.', "").lowercase()))
                         val values = ContentValues().apply {
                             put(MediaStore.Downloads.DISPLAY_NAME, name)
-                            put(MediaStore.Downloads.MIME_TYPE, current.contentType?.substringBefore(';') ?: mime ?: "application/octet-stream")
+                            put(MediaStore.Downloads.MIME_TYPE, type)
                             put(MediaStore.Downloads.RELATIVE_PATH, "${Environment.DIRECTORY_DOWNLOADS}/Amuse")
                             put(MediaStore.Downloads.IS_PENDING, 1)
                         }
+                        reason = "storage"
                         saved = requireNotNull(contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values))
-                        requireNotNull(contentResolver.openOutputStream(saved)).use { output -> current.inputStream.use { it.copyTo(output) } }
+                        val total = current.contentLengthLong
+                        requireNotNull(contentResolver.openOutputStream(saved)).use { output -> current.inputStream.use { input ->
+                            reason = "offline"
+                            val buffer = ByteArray(64 * 1024)
+                            var received = 0L; var shown = -1L
+                            while (true) {
+                                val read = input.read(buffer); if (read < 0) break
+                                reason = "storage"; output.write(buffer, 0, read); reason = "offline"
+                                received += read
+                                // about every percent, or every 256 KB when the size is not known
+                                val step = if (total > 0) received * 100 / total else received / (256 * 1024)
+                                if (id != null && step != shown) { shown = step; reportDownload(Downloads.report(id, "progress", received, total)) }
+                            }
+                        } }
+                        reason = "storage"
                         contentResolver.update(saved, ContentValues().apply { put(MediaStore.Downloads.IS_PENDING, 0) }, null, null)
-                        return@withContext name
+                        return@withContext saved to type
                     }
-                    error("Too many redirects")
+                    reason = "server"; error("Too many redirects")
                 } catch (error: Throwable) { saved?.let { contentResolver.delete(it, null, null) }; throw error }
                 finally { connection?.disconnect() }
             } }
-            state = state.copy(notice = result.fold({ "Saved to Downloads/Amuse/$it" }, { "File could not be saved. Check your connection and try again." }))
+            if (id == null) {
+                // no card to show it on: a short notice that goes away by itself
+                showNotice(result.fold({ "Saved to Downloads/Amuse" }, { "File could not be saved. Check your connection and try again." }))
+                return@launch
+            }
+            downloading -= id
+            result.fold({ (uri, type) ->
+                savedFiles.edit().putString(id, "$uri\n$type").apply()
+                reportDownload(Downloads.report(id, "saved"))
+            }, { reportDownload(Downloads.report(id, "failed", reason = reason)) })
         }
+    }
+
+    /** Opens the saved copy of a sent file, if it is still there; tells its card when no app takes it. */
+    private suspend fun openSaved(id: String): Boolean {
+        val (uri, type) = savedCopy(id) ?: return false
+        val intent = Intent(Intent.ACTION_VIEW).setDataAndType(uri, type).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        val opened = runCatching { startActivity(intent) }.isSuccess
+        reportDownload(Downloads.report(id, if (opened) "saved" else "noApp"))
+        return true
+    }
+
+    /** Where a sent file was saved, and as what, while that copy is still in Downloads. */
+    private suspend fun savedCopy(id: String): Pair<Uri, String>? = withContext(Dispatchers.IO) {
+        val (uri, type) = savedFiles.getString(id, null)?.split('\n', limit = 2)?.takeIf { it.size == 2 } ?: return@withContext null
+        val there = runCatching { contentResolver.query(Uri.parse(uri), arrayOf(MediaStore.Downloads._ID), null, null, null)?.use { it.count > 0 } }
+            .getOrNull() == true
+        if (!there) savedFiles.edit().remove(id).apply()
+        if (there) Uri.parse(uri) to type else null
+    }
+
+    /** Tells the page's cards which sent files are already saved on the phone. */
+    private fun reportSavedFiles(view: WebView) = lifecycleScope.launch {
+        for (id in savedFiles.all.keys) if (savedCopy(id) != null && view === webView) reportDownload(Downloads.report(id, "saved"))
+    }
+
+    /** An `amuse-download` event on the page (only ever the configured server's). */
+    private fun reportDownload(detail: String) = runOnUiThread {
+        val view = webView ?: return@runOnUiThread
+        if (!state.unlocked || !state.server.contains(view.url ?: "")) return@runOnUiThread
+        view.evaluateJavascript("window.dispatchEvent(new CustomEvent('amuse-download',{detail:$detail}))", null)
+    }
+
+    private fun showNotice(message: String) {
+        state = state.copy(notice = message)
+        lifecycleScope.launch { delay(4_000); if (state.notice == message) state = state.copy(notice = null) }
     }
 
     private fun openExternal(uri: Uri) {

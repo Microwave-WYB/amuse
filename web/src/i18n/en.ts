@@ -30,6 +30,18 @@ export const en = {
     },
     openFile: (name: string) => `Open ${name}`,
     deleted: "Deleted",
+    downloading: (percent: number | null) => (percent === null ? "Downloading…" : `Downloading ${percent}%`),
+    savedTapToOpen: "Saved · tap to open",
+    noAppOpens: "Saved · no app here opens it",
+    downloadFailed: (reason: "offline" | "server" | "storage" | null): string =>
+      reason === "offline"
+        ? "Couldn't download: no connection"
+        : reason === "server"
+          ? "Couldn't download: the server refused"
+          : reason === "storage"
+            ? "Couldn't save it on this phone"
+            : "Couldn't download",
+    retryDownload: (name: string) => `Download ${name} again`,
     sending: "Sending…",
     suggestedReplies: "Suggested replies",
     newMessages: (count: number) => (count === 1 ? "1 message" : `${count} messages`),

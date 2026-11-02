@@ -11,6 +11,7 @@ import {
   ChevronDown,
   Check,
   CircleAlert,
+  RotateCw,
   Copy,
   File as FileIcon,
   Reply as ReplyArrow,
@@ -20,6 +21,7 @@ import {
 import type { Attachment, Entity, Prompt, Quote, Reply, State } from "@amuse/protocol";
 import { quoteOf, size } from "@amuse/core";
 import { useFiles } from "../files.ts";
+import { indicator, useDownload } from "../download.ts";
 import type { Actions } from "../ui.ts";
 import { useT } from "../i18n/react.ts";
 import { useLongPress } from "../longPress.ts";
@@ -473,13 +475,37 @@ function Media({ file, single }: { file: Attachment; single: boolean }) {
   );
 }
 
-/** A file as a card: its name and size, to open or download; or that it was deleted. */
+/**
+ * A file as a card: its name and size, to open or download; or that it was deleted. In the Android app a tap
+ * saves it to the phone, with the progress on the card, a failure says so with a tap to retry, and a tap on a
+ * saved one opens it.
+ */
 function FileCard({ file, gone }: { file: Attachment; gone: boolean }) {
   const t = useT();
   const files = useFiles();
+  const download = useDownload(file.id);
+  const state = gone ? undefined : download?.state;
+  const end = state ? indicator(state) : null;
+  const line = gone
+    ? t.chat.deleted
+    : state?.kind === "downloading"
+      ? t.chat.downloading(state.progress === null ? null : Math.round(state.progress * 100))
+      : state?.kind === "saved"
+        ? state.noApp
+          ? t.chat.noAppOpens
+          : t.chat.savedTapToOpen
+        : state?.kind === "failed"
+          ? t.chat.downloadFailed(state.reason)
+          : size(file.size);
+  // in the app, the app takes the link: it downloads the file, or opens the copy it saved
+  const click = (event: React.MouseEvent) => download && !download.tap() && event.preventDefault();
   const body = (
     <>
-      <FileIcon size={20} style={{ color: "var(--icon-secondary)" }} />
+      {state?.kind === "failed" ? (
+        <CircleAlert size={20} className="shrink-0" style={{ color: "var(--icon-secondary)" }} />
+      ) : (
+        <FileIcon size={20} className="shrink-0" style={{ color: "var(--icon-secondary)" }} />
+      )}
       <span className="min-w-0">
         <span
           className={`block truncate text-[14px] font-medium ${gone ? "line-through" : ""}`}
@@ -493,23 +519,61 @@ function FileCard({ file, gone }: { file: Attachment; gone: boolean }) {
           className="block text-[12px]"
           style={{ color: "var(--text-secondary)" }}
         >
-          {gone ? t.chat.deleted : size(file.size)}
+          {line}
         </span>
       </span>
+      {state?.kind === "downloading" && end === "progress" && (
+        <span
+          className="absolute inset-x-3.5 bottom-1 h-[3px] overflow-hidden rounded-full"
+          style={{ background: "var(--fill-tertiary)" }}
+          role="progressbar"
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={state.progress === null ? undefined : Math.round(state.progress * 100)}
+        >
+          <span
+            className={`block h-full rounded-full ${state.progress === null ? "w-1/3 animate-pulse" : ""}`}
+            style={{
+              background: "var(--icon-secondary)",
+              ...(state.progress === null ? {} : { width: `${state.progress * 100}%` }),
+            }}
+          />
+        </span>
+      )}
     </>
   );
   const look =
-    "flex max-w-full items-center gap-2.5 rounded-[18px] px-3.5 py-2.5";
+    "relative flex max-w-full items-center gap-2.5 overflow-hidden rounded-[18px] px-3.5 py-2.5";
   if (gone || !files)
     return (
       <div className={look} style={{ background: "var(--fill-secondary)" }}>
         {body}
       </div>
     );
+  // failed: the reason stays on the card, and the retry button at its end downloads it again
+  if (end === "retry")
+    return (
+      <div className={look} style={{ background: "var(--fill-secondary)" }}>
+        {body}
+        <a
+          href={files.url(file.id)}
+          download={file.name}
+          onClick={click}
+          aria-label={t.chat.retryDownload(file.name)}
+          title={t.chat.retryDownload(file.name)}
+          className="hover-fade -mr-1.5 ml-auto grid size-8 shrink-0 place-items-center rounded-full"
+          style={{ background: "var(--fill-tertiary)", color: "var(--icon-primary)" }}
+        >
+          <RotateCw size={16} />
+        </a>
+      </div>
+    );
   return (
     <a
       href={files.url(file.id)}
       download={file.name}
+      onClick={click}
+      aria-busy={state?.kind === "downloading"}
       className={`hover-fade ${look}`}
       style={{ background: "var(--fill-secondary)" }}
     >

@@ -44,6 +44,18 @@ export const zhCN = {
     },
     openFile: (name) => `打开 ${name}`,
     deleted: "已删除",
+    downloading: (percent) => (percent === null ? "下载中…" : `下载中 ${percent}%`),
+    savedTapToOpen: "已保存 · 点按打开",
+    noAppOpens: "已保存 · 没有能打开它的应用",
+    downloadFailed: (reason) =>
+      reason === "offline"
+        ? "下载失败：没有网络连接"
+        : reason === "server"
+          ? "下载失败：服务器拒绝了"
+          : reason === "storage"
+            ? "无法保存到这台手机"
+            : "下载失败",
+    retryDownload: (name) => `重新下载 ${name}`,
     sending: "发送中…",
     suggestedReplies: "建议回复",
     newMessages: (count) => `${count} 条新消息`,
