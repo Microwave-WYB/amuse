@@ -79,16 +79,17 @@ const room = (context: string, now = noon, main = true, live = "") => ({
   running: () => live,
 });
 
-test("a turn's message tells what holds still first and what is new last: the conversation, then where, memory, language, now and the task", async () => {
+test("a turn's message tells what holds still first and what is new last: the conversation, then where, memory, language, now and the newest user message", async () => {
   const { brief } = await import("./agent.ts");
   const conversation = Array.from({ length: 80 }, (_, i) => `[2026-10-21 08:00] User: line ${i} ${"x".repeat(200)}`).join("\n");
   const told = brief(room(conversation, noon, false), { kind: "message", text: "hi", attachments: [], quote: null }, "Your memory of the user: likes tea", false, "Chinese", "");
   const at = (part: string) => told.text.indexOf(part);
-  const volatile = ["You are in a side chat", "Your memory of the user: likes tea", "The user writes in Chinese: reply in Chinese.", "Now: ", "Reply to the user's newest message"];
+  const volatile = ["You are in a side chat", "Your memory of the user: likes tea", "The user writes in Chinese: reply in Chinese.", "Now: ", "Reply to the user's newest message:\nhi"];
   assert.ok(at(conversation) > 0 && at("The conversation so far") === 0, "the heading, then the conversation");
   for (const part of volatile) assert.ok(at(part) > at(conversation) + conversation.length, `${part} comes after the conversation`);
-  assert.deepEqual(volatile.map(at), volatile.map(at).toSorted((a, b) => a - b), "and in that order, the task last");
-  assert.ok(told.text.endsWith("(the last lines above)."));
+  assert.deepEqual(volatile.map(at), volatile.map(at).toSorted((a, b) => a - b), "and in that order, the newest user message last");
+  assert.ok(told.text.endsWith("Reply to the user's newest message:\nhi"));
+  assert.doesNotMatch(told.text, /\brecall\b/);
   // what is kept from turn to turn is the heading and the conversation, whole parts of it, and none of the volatile
   assert.ok(told.stable.length > 0 && told.text.startsWith(told.stable.join("")));
   for (const part of volatile) assert.ok(!told.stable.join("").includes(part));
@@ -129,7 +130,7 @@ test("what is running now is in every turn, after the part the provider caches, 
   assert.doesNotMatch(stable, /What is running now|the user handed it back/, "and is none of what is kept from turn to turn");
   assert.match(
     told.text,
-    /\n---\nYou are in the main chat\.\n\nWhat is running now:\n- browser task "SHAPE training" \(b-1\): running, now "进入下一节（2\.02）" \(2 minutes ago\)\n\nSince your last turn:\n\[browser task "SHAPE training" \(b-1\): the user handed it back; it is carrying on\]\n\nYour memory of the user: likes tea\n\nNow: /,
+    /\n---\nYou are in the main chat\.\n\nWhat is running now:\n- browser task "SHAPE training" \(b-1\): running, now "进入下一节（2\.02）" \(2 minutes ago\)\n\nSince your last turn:\n\[browser task "SHAPE training" \(b-1\): the user handed it back; it is carrying on\]\n\nYour memory of the user: likes tea\n\nNow: .*\nReply to the user's newest message:\n在做了吗$/s,
   );
   // a turn with nothing running and nothing kept reads as it did before
   const quiet = brief(room(conversation), message, "", false, null, "");
@@ -155,20 +156,22 @@ test("the chat's tools come in the same order with the same schemas however ofte
   assert.deepEqual(build([skill("b"), skill("a")]), one);
   assert.deepEqual(build([skill("a"), skill("b")]), one);
   assert.equal(new Set(one.map((t) => JSON.parse(t)[0])).size, one.length, "no tool twice");
+  assert.ok(!one.some((t) => JSON.parse(t)[0] === "recall"), "no recall when workspace memory is configured");
   const names = (await allSkills([skill("b"), skill("c"), skill("a")], undefined)).map((s) => s.name);
   assert.deepEqual(names, ["a", "b", "c"], "the catalog is by name");
 });
 
-test("each turn of a chat opens a session of the chat's own name, and its system prompt is the same whatever language the user writes in", async () => {
-  const { fauxAssistantMessage } = await import("@earendil-works/pi-ai");
+test("each turn of a chat opens a session of the chat's own name, and its system prompt is byte-identical across turns without <cwd>", async () => {
+  const { fauxAssistantMessage, getCurrentSystemPrompt } = await import("@earendil-works/pi-ai");
   const { chat } = await import("./scripted-chat.ts");
   const systems: string[] = [];
   const users: string[] = [];
   const ids: string[] = [];
-  const seen = (context: { messages: { role: string; content: unknown }[] }) => {
+  const seen = (context: Parameters<typeof getCurrentSystemPrompt>[0] extends infer M ? { messages: M } : never) => {
     const text = (content: unknown) => (typeof content === "string" ? content : Array.isArray(content) ? content.map((c) => (typeof c?.text === "string" ? c.text : "")).join("") : "");
-    systems.push(text(context.messages.find((m) => m.role === "system")?.content));
-    users.push(text(context.messages.find((m) => m.role === "user")?.content));
+    systems.push(getCurrentSystemPrompt(context.messages) ?? "");
+    const user = context.messages.find((m) => m.role === "user");
+    users.push(user && "content" in user ? text(user.content) : "");
     return fauxAssistantMessage("ok");
   };
   const { agent, io, until } = await chat([seen, seen], { opened: (session) => ids.push(session.sessionId) });
@@ -178,10 +181,41 @@ test("each turn of a chat opens a session of the chat's own name, and its system
   agent.prompt(message, { ...io, lastWords: () => "你好，帮我看看" });
   await until(2);
   assert.deepEqual(ids, ["amuse-main", "amuse-main"]);
-  assert.equal(systems[0], systems[1]);
+  assert.ok((systems[0]?.length ?? 0) > 0, "system prompt is non-empty");
+  assert.equal(systems[0], systems[1], "system prompt is byte-identical across turns");
+  assert.doesNotMatch(systems[0] ?? "", /<cwd>/, "no random per-turn <cwd> tag in system prompt");
   assert.doesNotMatch(systems[1] ?? "", /writes in/);
   assert.doesNotMatch(users[0] ?? "", /writes in/);
-  assert.match(users[1] ?? "", /\nThe user writes in Chinese: reply in Chinese\.\n\nNow: /);
+  assert.match(users[1] ?? "", /\nThe user writes in Chinese: reply in Chinese\.\n\nNow: .*\nReply to the user's newest message:\nhello$/s);
+});
+
+test("a chat turn declares only the core tools initially and unlocks a skill's tools when use_skill is called", async () => {
+  const { noWorkspace } = await import("@amuse/core");
+  const { builtInSkills } = await import("./skills.ts");
+  const { fauxAssistantMessage, fauxToolCall, getCurrentTools } = await import("@earendil-works/pi-ai");
+  const { chat } = await import("./scripted-chat.ts");
+  const declaredPerStep: string[][] = [];
+  const { agent, io, until } = await chat(
+    [
+      (context) => {
+        declaredPerStep.push(getCurrentTools(context.messages).map((t) => t.name));
+        return fauxAssistantMessage([fauxToolCall("use_skill", { name: "schedules" })], { stopReason: "toolUse" });
+      },
+      (context) => {
+        declaredPerStep.push(getCurrentTools(context.messages).map((t) => t.name));
+        return fauxAssistantMessage("done");
+      },
+    ],
+    { files: noWorkspace, skills: builtInSkills() },
+  );
+  agent.prompt({ kind: "message", text: "set a reminder", attachments: [], quote: null }, io);
+  await until(1);
+  assert.equal(declaredPerStep.length, 2);
+  const initial = declaredPerStep[0] ?? [];
+  const afterSkill = declaredPerStep[1] ?? [];
+  assert.ok(initial.includes("use_skill") && initial.includes("memory_search") && initial.includes("remember"));
+  assert.ok(!initial.includes("schedule") && !initial.includes("list_schedules") && !initial.includes("write_file"), "skill-gated tools are hidden before use_skill");
+  assert.ok(afterSkill.includes("schedule") && afterSkill.includes("list_schedules") && afterSkill.includes("cancel_schedule"), "schedules tools are declared after use_skill('schedules')");
 });
 
 test("the session marks the request's cache where the turn's message holds still, reading it as each request is made", async () => {

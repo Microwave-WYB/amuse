@@ -105,3 +105,17 @@ test("things remembered at the same moment are all kept, each with its record", 
   const journal = files.text("memory/journal/2026-10-21.md") ?? "";
   for (const { id } of ids) assert.match(journal, new RegExp(id));
 });
+
+test("memoryBrief puts Preferences and Commitments first so a long Facts section never crowds them out", async () => {
+  const files = memoryWorkspace();
+  for (let i = 0; i < 60; i++) await remember(files, io, { section: "Facts", text: `Fact ${i} ${"x".repeat(120)}`, source: "the user" });
+  await remember(files, io, { section: "Preferences", text: "Keep replies short and direct", source: "the user" });
+  await remember(files, io, { section: "Commitments", text: "Send the camera roll by Sunday", source: "the user" });
+  assert.ok((files.text("memory/MEMORY.md") ?? "").length > 7_000, "Facts alone is past the brief limit");
+  const brief = await memoryBrief(files);
+  const at = (part: string) => brief.indexOf(part);
+  assert.ok(at("## Preferences") > 0 && at("Keep replies short and direct") > at("## Preferences"));
+  assert.ok(at("## Commitments") > at("## Preferences") && at("Send the camera roll by Sunday") > at("## Commitments"));
+  assert.ok(at("## Facts") > at("## Commitments"), "Preferences and Commitments come before Facts");
+  assert.match(brief, /… \(cut; read the rest with memory_get\)/);
+});

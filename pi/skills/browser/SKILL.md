@@ -1,6 +1,6 @@
 ---
 name: browser
-description: Doing something on a website (log in, fill a form, click through, buy, book). Read before starting or giving work to a browser.
+description: Doing something on a website (log in, fill a form, click through, buy, book) with `browse`; unlocks `read_browser`, `save_screenshot`, `message_run`, `answer_question` and `stop_run`.
 ---
 
 # Working in a browser

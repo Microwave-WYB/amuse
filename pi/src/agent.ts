@@ -261,7 +261,13 @@ export function piAgent(cfg: PiConfig): Pick<Ports, "prompt" | "interrupt" | "ti
       // what is the same from turn to turn comes first, so the provider can reuse it: the rules, then the skills
       const system = [cfg.system, skills].filter(Boolean).join("\n\n");
       if (turn.kind === "message") setUpDefaults(cfg.defaults, agent);
-      const toolset = agentTools(cfg, io, () => heard, () => (silent = true), (options) => (offered = options), jobs);
+      const liveNow = jobs ? withJobs(agent.running(), jobs.running(agent.chat), agent.time().now) : agent.running();
+      const inSideChat = !agent.chats().find((c) => c.id === agent.chat)?.main;
+      const unlocked = [
+        ...(liveNow ? ["read_browser", "save_screenshot", "message_run", "answer_question", "stop_run", "job_output", "stop_job"] : []),
+        ...(inSideChat ? ["list_chats", "read_chat"] : []),
+      ];
+      const toolset = agentTools(cfg, io, () => heard, () => (silent = true), (options) => (offered = options), jobs, { gate: true, unlocked });
       // many calls in one turn, only what the script returns in its context
       // the chat has one cache name, and the turn's message begins with what the last one did: both let a provider find its cache again
       let stable: string[] = [];
@@ -320,7 +326,16 @@ export function piAgent(cfg: PiConfig): Pick<Ports, "prompt" | "interrupt" | "ti
           if (cfg.files) shown.push(...(await images(cfg.files, more.flatMap((m) => m.attachments))));
         }
         heard = taken.length > 0;
-        const told = brief(jobs ? { ...agent, running: () => withJobs(agent.running(), jobs.running(agent.chat), agent.time().now) } : agent, turn, remembered, heard, language, lane.kept.splice(0).join("\n\n"));
+        const newest: Turn =
+          turn.kind === "message" && taken.length > 1
+            ? {
+                ...turn,
+                text: taken.map((m) => m.text).join("\n"),
+                attachments: taken.flatMap((m) => m.attachments),
+                quote: taken.findLast((m) => m.quote)?.quote ?? turn.quote,
+              }
+            : turn;
+        const told = brief(jobs ? { ...agent, running: () => withJobs(agent.running(), jobs.running(agent.chat), agent.time().now) } : agent, newest, remembered, heard, language, lane.kept.splice(0).join("\n\n"));
         stable = told.stable;
         // from here the model has the conversation as it stands: what the user adds goes to it as it works
         lane.steering = { session: pi, unread: [], sending: Promise.resolve() };
@@ -392,13 +407,21 @@ export function piAgent(cfg: PiConfig): Pick<Ports, "prompt" | "interrupt" | "ti
  * The chat agent's tools, always in this order and with these schemas for the same setup (a provider caches a request by what it
  * starts with, and the tools come before the conversation): nothing here is sorted, shuffled or made up of the turn.
  */
-export function agentTools(cfg: PiConfig, io: () => AgentIO, heard: () => boolean, silence: () => void, offer: (options: string[]) => void, jobs: JobBook | undefined = cfg.sandbox ? jobBook(cfg.sandbox) : undefined): ToolDefinition[] {
+export function agentTools(
+  cfg: PiConfig,
+  io: () => AgentIO,
+  heard: () => boolean,
+  silence: () => void,
+  offer: (options: string[]) => void,
+  jobs: JobBook | undefined = cfg.sandbox ? jobBook(cfg.sandbox) : undefined,
+  options?: { gate?: boolean | undefined; unlocked?: Iterable<string> | undefined },
+): ToolDefinition[] {
   return [
     // with memory, memory_search looks in the chats as recall did, and in memory/ too
     ...tools(io, cfg.rules, { files: cfg.files, appsSetup: cfg.appsSetup, appsFit: cfg.appsFit }).filter((t) => !(cfg.files && t.name === "recall")),
     ...(cfg.browsers ? browserReadTools(cfg, cfg.browsers, cfg.files) : []),
     ...(cfg.files ? [...memoryReadTools(io, cfg.files), ...memoryWriteTools(io, cfg.files)] : []),
-    ...skillTools(cfg.skills ?? [], cfg.files),
+    ...skillTools(cfg.skills ?? [], cfg.files, { gate: options?.gate ?? true, unlocked: options?.unlocked }),
     ...(cfg.about ? aboutTools(cfg.about) : []),
     ...chatTools(io),
     ...scheduleTools(io, cfg.files),
@@ -513,21 +536,26 @@ export interface Brief {
   stable: string[];
 }
 
+function newestMessage(turn: Message): string {
+  const names = attached(turn.attachments);
+  return [turn.quote ? `(replying to ${quoted(turn.quote)})` : "", turn.text, names ? `Attached: ${names}` : ""].filter(Boolean).join("\n");
+}
+
 /**
  * The turn as the model gets it, by how much each part changes. First what holds still: the heading, then the conversation, which only
  * grows at its end (context.ts) and is cached by the provider up to where it last agreed. Last what is new every turn: where this
  * is, what is running now (live.ts) and what happened while it was not looking, what is remembered, the language, the time, and what
- * to do.
+ * to do (with the user's newest message last so it is the final thing read before generating).
  */
 export function brief(agent: Pick<AgentIO, "chat" | "chats" | "context" | "time" | "running">, turn: Turn, remembered: string, written: boolean, language: string | null, kept: string): Brief {
   const { now, timezone } = agent.time();
   const here = agent.chats().find((c) => c.id === agent.chat);
   const where = here?.main
     ? "You are in the main chat."
-    : `You are in a side chat${here?.title ? ` ("${here.title}")` : ""}: only this chat is shown above. The main chat and other chats are there to look up (list_chats, read_chat, recall with everywhere) when the user refers to them.`;
+    : `You are in a side chat${here?.title ? ` ("${here.title}")` : ""}: only this chat is shown above. The main chat and other chats are there to look up (list_chats, read_chat, memory_search) when the user refers to them.`;
   const task =
     turn.kind === "message"
-      ? "Reply to the user's newest message (the last lines above)."
+      ? `Reply to the user's newest message:\n${newestMessage(turn)}`
       : `A note from your background work (not from the user). Tell the user only what they need to hear, in your own words, never that a note came. If nothing needs them (all is well, nothing was waiting, you already told them), call no_reply and write nothing: never explain why you are staying silent.${written ? " The user has also written since (their newest message is in the last lines above): reply to them too." : ""}\n${turn.text}`;
   const speaks = language ? `The user writes in ${language}: reply in ${language}.` : "";
   const since = kept ? `Since your last turn:\n${kept}` : "";

@@ -65,14 +65,10 @@ export function parseModel(spec: string): { provider: string; id: string } | und
   return slash > 0 && provider && id ? { provider, id } : undefined;
 }
 
-/** A resource loader that discovers nothing, so Pi adds no prompts, skills or AGENTS.md of its own. */
+/** A resource loader that discovers nothing, so Pi adds no prompts, skills, AGENTS.md or `<cwd>` of its own. */
 function bare(system: string): ResourceLoader {
   return {
-    getExtensions: () => ({
-      extensions: [],
-      errors: [],
-      runtime: createExtensionRuntime(),
-    }),
+    getExtensions: () => ({ extensions: [], errors: [], runtime: createExtensionRuntime() }),
     getSkills: () => ({ skills: [], diagnostics: [] }),
     getPrompts: () => ({ prompts: [], diagnostics: [] }),
     getThemes: () => ({ themes: [], diagnostics: [] }),
@@ -134,16 +130,32 @@ export interface PiSession {
   close(): void;
 }
 
+const CODEMODE_DESCRIPTION =
+  "Run a JavaScript async arrow function `async () => { ... }` that calls multiple tools via `tools.<name>(args)` (each returns a Promise<string>) and returns a result; use only to batch or chain many calls in one step.";
+
 /**
- * Codemode's resources: the system prompt as given, and Pi's codemode extension (`on`: the tools stay
- * declared as well, each saying how a script calls it), nothing discovered from disk.
+ * Codemode's resources: the system prompt kept byte-for-byte as given (no `<cwd>` tag or extra guidelines), and Pi's
+ * codemode tool registered without mutating every other tool's description, nothing discovered from disk.
  */
 async function withCodemode(system: string, cwd: string): Promise<ResourceLoader> {
+  const base = createCodemodeExtension({ mode: "on", models: false });
   const loader = new DefaultResourceLoader({
     cwd,
     agentDir: cwd,
     systemPrompt: system,
-    extensionFactories: [createCodemodeExtension({ mode: "on", models: false })],
+    extensionFactories: [
+      (pi) => {
+        pi.on("before_agent_start", () => ({ systemPrompt: system }));
+        base({
+          ...pi,
+          registerTool(tool) {
+            const { prepareLoadout: _, promptGuidelines: __, ...rest } = tool;
+            pi.registerTool({ ...rest, description: CODEMODE_DESCRIPTION });
+          },
+        });
+      },
+    ],
+    noExtensions: true,
     noSkills: true,
     noPromptTemplates: true,
     noThemes: true,
@@ -218,6 +230,12 @@ export async function sessionOn(
     tools: [...tools.map((tool) => tool.name), ...(codemode ? ["codemode"] : [])],
     customTools: tools,
   });
+  const internal = session as unknown as {
+    _baseSystemPromptOptions?: { forceSystemPrompt?: string };
+    _baseSystemPrompt?: string;
+  };
+  if (internal._baseSystemPromptOptions) internal._baseSystemPromptOptions.forceSystemPrompt = system;
+  internal._baseSystemPrompt = system;
   if (caching) {
     const { agent } = session;
     const before = agent.onPayload;

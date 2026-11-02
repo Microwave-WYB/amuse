@@ -1,6 +1,6 @@
 ---
 name: amuse
-description: How Amuse itself works: its parts, what it can and cannot do, its limits, and what is planned. Read when the user asks what you can do or how something works, or before you tell them something is not possible.
+description: How Amuse itself works and is set up (`amuse_status`, Settings, permissions). Read only when the user asks about Amuse or its setup.
 ---
 
 # How Amuse works

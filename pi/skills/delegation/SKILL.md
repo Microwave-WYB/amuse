@@ -1,6 +1,6 @@
 ---
 name: delegation
-description: Handing work off to background helpers and following it up (long tasks, several things at once, a run's questions and reports). Read before handing off or managing work in flight.
+description: Handing work off to background helpers (`start_task`, `browse`) and following it up; unlocks `message_run`, `answer_question`, `stop_run` and `read_browser`.
 ---
 
 # Handing work off

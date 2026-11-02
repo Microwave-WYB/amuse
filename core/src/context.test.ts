@@ -44,7 +44,8 @@ test("older parts are told in brief, and the oldest only counted, newest kept wh
   // blocks of about 600 characters: the open one's room is kept, so 1 400 is two closed blocks in full
   const text = context(stateOf(...feed), { full: 2_000, brief: 1_000 }, undefined, 600);
   const lines = text.split("\n");
-  assert.match(lines[0] ?? "", /^\(\d+ earlier items not shown; use recall/);
+  assert.match(lines[0] ?? "", /^\(\d+ earlier items not shown; use memory_search to search them\)$/);
+  assert.doesNotMatch(text, /\brecall\b/);
   assert.equal(lines.at(-1), `[2026-10-20 08:00] User: 39 ${long}`, "the newest is whole");
   assert.ok(lines.some((l) => l.endsWith("…")), "some are in brief");
   assert.ok(text.length <= 3_700);
@@ -172,4 +173,12 @@ test("a text is cut into parts that stay cut as it grows: after the first line t
 test("a message sent by tapping a suggested reply is marked so for the agent", () => {
   const tapped: Entity = { kind: "prompt", id: "p1", at, text: "Go ahead", timezone: "UTC", attachments: [], quote: null, suggested: true };
   assert.equal(context(stateOf(tapped)), "[2026-10-20 08:00] User (tapped one of your suggested replies): Go ahead");
+});
+
+test("long multi-paragraph briefings in the chat are flattened and shortened in the full window so they do not crowd it", () => {
+  const briefing = reply("r1", `Morning briefing: three mails came in.\n\nFirst paragraph ${"a".repeat(300)}\n\nSecond paragraph ${"b".repeat(300)}`);
+  const rendered = context(stateOf(briefing, prompt("p1", "thanks")));
+  const lines = rendered.split("\n");
+  assert.equal(lines.length, 2, "flattened to one line");
+  assert.ok((lines[0]?.length ?? 0) <= 270 && lines[0]?.endsWith("…"));
 });

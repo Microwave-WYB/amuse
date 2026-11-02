@@ -79,11 +79,28 @@ export async function allSkills(builtIn: Skill[], files: Workspace | undefined):
   return [...byName.values()].sort((a, b) => a.name.localeCompare(b.name));
 }
 
+/** Tools unlocked when a built-in skill is read with `use_skill`; core chat tools stay declared on every turn. */
+export const SKILL_TOOLS: Record<string, readonly string[]> = {
+  amuse: ["amuse_status", "list_chats", "read_chat", "list_secrets", "request_secret", "use_secret"],
+  browser: ["read_browser", "save_screenshot", "message_run", "answer_question", "stop_run", "list_secrets", "request_secret", "use_secret"],
+  connections: ["request_connection", "app_tools", "app_call"],
+  delegation: ["message_run", "answer_question", "stop_run", "read_browser", "list_chats", "read_chat"],
+  files: ["list_files", "read_file", "write_file", "move_file", "delete_file", "send_file"],
+  goals: ["list_files", "read_file", "write_file", "move_file", "delete_file", "memory_get", "schedule", "list_schedules", "cancel_schedule"],
+  herdr: ["run_command", "job_output", "stop_job", "list_secrets", "request_secret", "use_secret", "list_files", "read_file", "write_file"],
+  memory: ["memory_get", "memory_explain", "forget", "list_chats", "read_chat"],
+  sandbox: ["run_command", "job_output", "stop_job", "list_secrets", "request_secret", "use_secret", "list_files", "read_file", "write_file", "move_file", "delete_file", "send_file"],
+  schedules: ["schedule", "list_schedules", "cancel_schedule"],
+};
+
+/** Every tool kept behind a skill until `use_skill` opens one (or background work is already running). */
+export const GATED_TOOLS: ReadonlySet<string> = new Set(Object.values(SKILL_TOOLS).flat());
+
 /** The list every turn gets. */
 export function catalog(skills: Skill[]): string {
   if (skills.length === 0) return "";
   return [
-    "Skills: how to do a kind of work well. Before you do what one covers, read it with `use_skill` (once a conversation is enough, unless it changed). The user's own are in skills/ of the workspace; you may add one there (a folder with a SKILL.md, front matter name and description) when they ask, or to keep a way of working they want repeated.",
+    "Skills (only when a turn needs one of these workflows or its tools — call `use_skill` to read the instructions and unlock that skill's tools; skip for plain conversation):",
     ...skills.map((s) => `- ${s.name}: ${s.description}`),
   ].join("\n");
 }
@@ -91,18 +108,38 @@ export function catalog(skills: Skill[]): string {
 type Text = { content: { type: "text"; text: string }[]; details: null };
 const say = (text: string): Text => ({ content: [{ type: "text", text }], details: null });
 
-/** Reading a skill. */
-export function skillTools(builtIn: Skill[], files: Workspace | undefined): ToolDefinition[] {
+/** Reading a skill, and unlocking the tools that belong to it when `gate` is on. */
+export function skillTools(
+  builtIn: Skill[],
+  files: Workspace | undefined,
+  { gate = false, unlocked }: { gate?: boolean | undefined; unlocked?: Iterable<string> | (() => Iterable<string>) | undefined } = {},
+): ToolDefinition[] {
+  const opened = new Set<string>();
+  let openAll = false;
   return [
     defineTool({
       name: "use_skill",
       label: "Read up",
-      description: "Read a skill in full (by its name, from the list of skills), before doing the work it covers.",
+      description: "Read a skill's instructions and unlock its tools for this turn (connections, files, sandbox, schedules, etc.). Only call when the turn needs what that skill covers.",
       parameters: Type.Object({ status, name: Type.String() }),
+      ...(gate
+        ? {
+            prepareLoadout(loadout) {
+              if (openAll) return {};
+              const initial = typeof unlocked === "function" ? unlocked() : (unlocked ?? []);
+              const active = new Set<string>(initial);
+              for (const name of opened) for (const tool of SKILL_TOOLS[name] ?? []) active.add(tool);
+              const hiddenDeclarations = loadout.declared.map((t) => t.name).filter((name) => GATED_TOOLS.has(name) && !active.has(name));
+              return hiddenDeclarations.length > 0 ? { hiddenDeclarations } : {};
+            },
+          }
+        : {}),
       async execute(_, { name }) {
         const skills = await allSkills(builtIn, files);
         const skill = skills.find((s) => s.name === name.trim());
         if (!skill) return say(`There is no skill "${name}". There are: ${skills.map((s) => s.name).join(", ") || "none"}.`);
+        if (skill.name in SKILL_TOOLS) opened.add(skill.name);
+        else openAll = true;
         const more = skill.from === "built in" ? "" : `\n\n(Its folder is ${skill.from}; other files in it can be read with read_file.)`;
         return say(`# ${skill.name}\n\n${skill.body}${more}`);
       },

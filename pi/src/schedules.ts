@@ -128,7 +128,7 @@ export function scheduleTools(io: () => AgentIO, files?: Workspace): ToolDefinit
 const background = [
   ...helperRules,
   "This run is one scheduled task.",
-  "If there is something the user should hear, call `report` once with it: the facts, in the user's language, plain text. If nothing is worth telling (no new mail that matters, nothing changed), do not report: the user is not to be bothered for nothing.",
+  "If there is something the user should hear, call `report` once with it: one to three short sentences of plain prose in the user's language, no headings or bullet lists. If nothing is worth telling (no new mail that matters, nothing changed), do not report: the user is not to be bothered for nothing.",
   "When done, end with one short line, in the user's language, on what you did and found; it is kept as the run's record, not shown in the chat.",
 ].join("\n");
 

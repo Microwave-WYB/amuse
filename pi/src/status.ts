@@ -5,11 +5,7 @@
  */
 import { Type } from "typebox";
 
-export const status = Type.Optional(
-  Type.String({
-    description: "A few words for the user about what this step does, in their language (e.g. 'Checking your latest mail', 'Opening the trip portal'). Shown under your name while it runs.",
-  }),
-);
+export const status = Type.Optional(Type.String());
 
 /** The status the agent wrote into a tool call's arguments, if any. */
 export function statusOf(args: unknown): string | null {

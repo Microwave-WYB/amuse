@@ -1,6 +1,6 @@
 ---
 name: files
-description: The workspace of files shared with the user: what they sent, downloads, organizing, sending files. Read before working with files.
+description: Workspace files shared with the user: unlocks `list_files`, `read_file`, `write_file`, `move_file`, `delete_file` and `send_file`.
 ---
 
 # Files

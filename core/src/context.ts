@@ -4,9 +4,9 @@
  * user said, what Muse said, each browser run with what it was asked and
  * what came of it), so there is nothing to summarize apart: the conversation
  * is rendered into text, the newest part in full and older parts in brief,
- * oldest left out once a budget is spent (the agent can `recall` them).
- * The same conversation always gives the same context, and a restart loses
- * nothing.
+ * oldest left out once a budget is spent (the agent can search them with
+ * `memory_search`). The same conversation always gives the same context, and a
+ * restart loses nothing.
  *
  * The text is made to be cached by the model's provider, which reuses a
  * request only up to where it starts to differ from the last one. So the
@@ -31,6 +31,9 @@ export const budget: Budget = { full: 24_000, brief: 8_000 };
 
 /** A block of the conversation closes once its entities, told in full, come to this many characters. */
 export const blockSize = 6_000;
+
+/** Even in the full window, a long reply or multi-paragraph scheduled report is flattened and shortened so past briefings do not crowd the chat or teach multi-paragraph style. */
+export const replyLimit = 450;
 
 type Detail = "full" | "brief";
 
@@ -73,7 +76,8 @@ export function line(entity: Entity, detail: Detail, zone: string, where: Where 
     case "reply": {
       if (!entity.text.trim() && entity.attachments.length === 0) return null;
       const files = entity.attachments.length > 0 ? ` [sent: ${entity.attachments.map(describe(where)).join(", ")}]` : "";
-      return `[${at}] Amuse: ${full ? entity.text : clip(entity.text, 160)}${files}`;
+      const max = full ? (entity.text.includes("\n\n") ? 240 : replyLimit) : 160;
+      return `[${at}] Amuse: ${clip(entity.text, max)}${files}`;
     }
     case "browser": {
       const head = `[${at}] Browser task ${entity.id} "${entity.title}" (${entity.status}${entity.live ? ", open" : ""}) at ${entity.url}`;
@@ -109,8 +113,8 @@ export function line(entity: Entity, detail: Detail, zone: string, where: Where 
     case "schedule": {
       const head = `[${at}] Schedule ${entity.id} "${entity.title}" (${entity.status}${entity.running ? ", running" : ""}), ${repeats(entity.when, zone)}`;
       const next = entity.next ? `, next ${localTime(entity.next, zone)}` : "";
-      const asked = full ? `\n  Instructions: ${entity.instructions}` : "";
-      const last = entity.last ? `\n  Last run ${localTime(entity.last.at, zone)}: ${entity.last.outcome}${full ? ` — ${entity.last.summary}` : ""}` : "";
+      const asked = full ? `\n  Instructions: ${clip(entity.instructions, 240)}` : "";
+      const last = entity.last ? `\n  Last run ${localTime(entity.last.at, zone)}: ${entity.last.outcome}${full && entity.last.summary ? ` — ${clip(entity.last.summary, 240)}` : ""}` : "";
       return head + next + asked + last;
     }
   }
@@ -180,7 +184,7 @@ export function agentContext(state: State, limits: Budget = budget, where: Where
   }
   const first = closed[left]?.first ?? open.first;
   const earlier = first + state.earlier;
-  const note = left > 0 ? [`(${earlier} earlier items not shown; use recall to search them)`] : [];
+  const note = left > 0 ? [`(${earlier} earlier items not shown; use memory_search to search them)`] : [];
   return [...note, ...shown.reverse().flat()].join("\n");
 }
 

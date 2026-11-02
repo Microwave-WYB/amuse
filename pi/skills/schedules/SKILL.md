@@ -1,6 +1,6 @@
 ---
 name: schedules
-description: Work for later or on a schedule (a morning briefing, checking mail hourly, a reminder tomorrow). Read before setting one up, changing or cancelling one.
+description: Work for later or on a schedule (a morning briefing, checking mail hourly, a reminder tomorrow); unlocks `schedule`, `list_schedules` and `cancel_schedule`.
 ---
 
 # Schedules
