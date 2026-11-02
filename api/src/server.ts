@@ -5,7 +5,7 @@
  * WebSocket routes: /rpc (one shared Session, one Peer per socket),
  * /live?id=<run> (a run's live browser view) and /terminal?cols=<n>&rows=<n>
  * (the sandbox's terminals). Requests authenticate with the HttpOnly session
- * cookie the master password opens on a trusted device (access.ts). Browsers
+ * cookie the master password opens on any device (access.ts). Browsers
  * may open the sockets, and post to the way in and the account, only from this
  * origin; anything else is refused. So is every request, whatever it asks, from
  * an address given to `refuse` (the sandbox's network), and every request that
@@ -23,7 +23,7 @@ import { Cols, Rows } from "@amuse/sandbox";
 import { WebSocketServer } from "ws";
 import { z } from "zod";
 import type { Call } from "@amuse/protocol";
-import { type Access, PasswordRejected, type Seen } from "./access.ts";
+import { type Access, type Entry, PasswordRejected, type Seen } from "./access.ts";
 import { type Pin, PinRejected, PinRequired, type Tried, type Unlocks, LENGTHS, wellFormed } from "./pin.ts";
 import { type FileStore, disposition, servedType, shownInline } from "./workspace.ts";
 import { type Live, attach, thumbnail } from "./live.ts";
@@ -58,7 +58,7 @@ export interface Options {
 }
 
 const cookieName = "amuse";
-/** the device's own cookie: it stays when the session ends, so a trusted device signs in again without approval */
+/** the device's own cookie: it stays when the session ends, so a device signing in again is the one listed */
 const deviceCookie = "amuse-device";
 /**
  * The header Amuse's own browsers are to put on every request: a request that carries it is turned away, on every route,
@@ -89,7 +89,7 @@ function cookieIn(req: IncomingMessage, wanted: string): string | null {
 /** The session a request carries in its cookie, if any. */
 const presented = (req: IncomingMessage) => cookieIn(req, cookieName);
 
-/** What a request says of its device, for the card that approves it: its browser, and where it came from (through a proxy, what the proxy says). */
+/** What a request says of its device, for the list of devices: its browser, and where it came from (through a proxy, what the proxy says). */
 function seenOf(req: IncomingMessage): Seen {
   const forwarded = String(req.headers["x-forwarded-for"] ?? "").split(",")[0]?.trim();
   return { agent: String(req.headers["user-agent"] ?? ""), address: forwarded || req.socket.remoteAddress || "" };
@@ -174,8 +174,8 @@ export function listen({ session, live, terminal, files: uploads, web, returned,
       : `${name}=${encodeURIComponent(session)}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${name === deviceCookie ? 10 * 31536000 : 31536000}${secure}`;
   };
   /** The cookies an entry gives: its session, and the device's own when it has a new one. */
-  const entered = (req: IncomingMessage, entry: { device: string | null; session?: string }) => [
-    ...(entry.session !== undefined ? [cookie(req, entry.session)] : []),
+  const entered = (req: IncomingMessage, entry: Entry) => [
+    cookie(req, entry.session),
     ...(entry.device !== null ? [cookie(req, entry.device, deviceCookie)] : []),
   ];
   const body = async (req: IncomingMessage): Promise<unknown> => {
@@ -195,12 +195,10 @@ export function listen({ session, live, terminal, files: uploads, web, returned,
       .end(JSON.stringify(value));
 
   /**
-   * The way in. GET /unlock → 204 when this browser is in, 202 { waiting } while
-   * this device waits for a trusted one's approval (the poll that finds it
-   * approved gets its session), else 401 with whether the password is set yet.
-   * POST /setup {password, pin} sets both (the first time only), and trusts this
-   * device; POST /unlock {password} opens a session on a trusted device, or makes
-   * this one wait (202); POST /lock ends this session; POST /password {current,
+   * The way in. GET /unlock → 204 when this browser is in, else 401 with whether
+   * the password is set yet. POST /setup {password, pin} sets both (the first
+   * time only); POST /unlock {password} opens a session on this device, whichever
+   * it is; POST /lock ends this session; POST /password {current,
    * next} changes it (behind the PIN), ending every other session. Posts come as
    * JSON from this origin only, so no other page can send them.
    */
@@ -212,9 +210,6 @@ export function listen({ session, live, terminal, files: uploads, web, returned,
         const claimed = access.deviceOf(presented(req) ?? "")?.cookie ?? null;
         return void res.writeHead(204, { "cache-control": "no-store", ...(claimed ? { "set-cookie": cookie(req, claimed, deviceCookie) } : {}) }).end();
       }
-      const admitted = access.admitted(device, seenOf(req));
-      if (admitted?.kind === "in") return void res.writeHead(204, { "cache-control": "no-store", "set-cookie": entered(req, admitted) }).end();
-      if (access.waiting(device)) return json(res, 202, { waiting: true });
       return json(res, 401, { ready: access.ready() });
     }
     if (req.method !== "POST") return void res.writeHead(405).end();
@@ -239,7 +234,6 @@ export function listen({ session, live, terminal, files: uploads, web, returned,
         if (!given.success) return void res.writeHead(400).end();
         if (!wellFormed(given.data.pin)) return json(res, 400, { reason: "A PIN is 6 digits." });
         const entry = await access.setup(given.data.password, device, seenOf(req));
-        if (entry.kind !== "in") return void res.writeHead(500).end();
         await pin.set(given.data.pin);
         unlocks.open(entry.session);
         return void res.writeHead(204, { "set-cookie": entered(req, entry) }).end();
@@ -252,7 +246,6 @@ export function listen({ session, live, terminal, files: uploads, web, returned,
           tried.miss();
           return json(res, 401, { reason: "That is not the password." });
         }
-        if (entry.kind === "waiting") return void res.writeHead(202, { "content-type": "application/json", "cache-control": "no-store", "set-cookie": entered(req, entry) }).end(JSON.stringify({ waiting: true }));
         return void res.writeHead(204, { "set-cookie": entered(req, entry) }).end();
       }
       if (url.pathname === "/password") {
@@ -290,9 +283,7 @@ export function listen({ session, live, terminal, files: uploads, web, returned,
    *   POST /account/pin/minutes        {minutes}: how long an unlock lasts; a longer one needs the PIN
    *   POST /account/pin/off            {password, pin?}: turn the PIN off (the password, and the PIN there is when there is one);
    *                                    sensitive actions then go through and nothing is asked, until a PIN is set again
-   *   POST /account/devices/approve    {id}: let a waiting device in (needs the PIN)
-   *   POST /account/devices/deny       {id}: turn a waiting device away
-   *   POST /account/devices/revoke     {id}: stop trusting a device, ending its sessions (needs the PIN)
+   *   POST /account/devices/revoke     {id}: forget a device, ending its sessions (needs the PIN)
    * A change that needs the PIN without an unlock is 403 { pin: "unset" | "locked" }.
    */
   const account = async (req: IncomingMessage, url: URL, res: ServerResponse) => {
@@ -371,18 +362,6 @@ export function listen({ session, live, terminal, files: uploads, web, returned,
           // a shorter unlock only takes away
           if (given.data.minutes > pin.minutes()) unlocks.require(session);
           pin.setMinutes(given.data.minutes);
-          return done();
-        }
-        case "/account/devices/approve": {
-          const given = DeviceGiven.safeParse(data);
-          if (!given.success) return void res.writeHead(400).end();
-          unlocks.require(session);
-          return access.approve(given.data.id) ? done() : json(res, 404, { reason: "That device is no longer waiting." });
-        }
-        case "/account/devices/deny": {
-          const given = DeviceGiven.safeParse(data);
-          if (!given.success) return void res.writeHead(400).end();
-          access.deny(given.data.id);
           return done();
         }
         case "/account/devices/revoke": {

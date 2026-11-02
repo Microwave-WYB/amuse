@@ -14,6 +14,7 @@ import { applyTheme, storedTheme } from "./theme.ts";
 import { activeT } from "./i18n/language.ts";
 import { useT } from "./i18n/react.ts";
 import { resumeOnReturn } from "./return.ts";
+import { type Watched, alwaysLive, useConnecting } from "./link.ts";
 import { Files, serverFiles } from "./files.ts";
 import { Unlock } from "./components/Unlock";
 import { type Actions, type Ui, initialUi } from "./ui.ts";
@@ -58,22 +59,24 @@ import { MenuButton, TopBar } from "./components/TopBar";
 import { Viewer } from "./components/Viewer";
 
 /**
- * A session and how to let go of it (a socket must be closed, or it reconnects forever), and how to take the
- * connection up again at once when the page comes back (a phone's browser freezes it in the background).
- * On a server, a sensitive call the server holds for the PIN asks for it (`ask`), then goes again.
+ * A session and how to let go of it (a socket must be closed, or it reconnects forever), how to check the connection
+ * and take it up again at once when the page comes back (a phone's browser freezes it in the background), and how it
+ * stands (`watched`: the page says when it is connecting). On a server, a sensitive call the server holds for the PIN
+ * asks for it (`ask`), then goes again.
  */
 const openSession = (
   where: Connection,
   ask: Ask,
-): { session: Session; close: () => void; resume: () => void } => {
+): { session: Session; close: () => void; resume: () => void; watched: Watched } => {
   if (where.kind === "server") {
     const remote = connect(where.rpc, { unreachable: () => activeT().common.serverUnreachable });
-    return { session: pinGuarded(remote, ask), close: () => remote.close(), resume: () => remote.resume() };
+    return { session: pinGuarded(remote, ask), close: () => remote.close(), resume: () => remote.resume(), watched: remote };
   }
   return {
     session: createHost(demoPorts(realTimers), { seed: seed() }),
     close: () => {},
     resume: () => {},
+    watched: alwaysLive,
   };
 };
 
@@ -82,7 +85,7 @@ export default function App() {
   useEffect(() => void connection().then(setWhere), []);
   if (!where) return null;
   return where.kind === "locked" ? (
-    <Unlock ready={where.ready} waiting={where.waiting} />
+    <Unlock ready={where.ready} />
   ) : (
     <Chat where={where} />
   );
@@ -92,9 +95,11 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
   const t = useT();
   const pin = usePinSheet();
   const [link, setLink] = useState(() => openSession(where, pin.ask));
-  const { session, resume } = link;
-  // a page that comes back after the browser froze it (a phone in the background) takes its socket up at once
+  const { session, resume, watched } = link;
+  // a page that comes back after the browser froze it (a phone in the background) checks its socket, and takes it up
+  // again at once if it is gone; until it is live again, the badge says it is connecting
   useEffect(() => resumeOnReturn(resume), [resume]);
+  const connecting = useConnecting(watched);
   const chats = useChats(session);
   // the look this device was left in
   const [ui, setUi] = useState<Ui>(() => ({
@@ -555,6 +560,7 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
             />
             <TopBar
               conversation={conversation}
+              connecting={connecting}
               museOpen={ui.museOpen}
               actions={actions}
             />

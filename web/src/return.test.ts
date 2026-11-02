@@ -4,12 +4,13 @@
  * rather than the transport's "disconnected", and let go of it once a call has gone through.
  */
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import { test } from "node:test";
 import { WebSocketServer, type WebSocket as ServerSocket } from "ws";
 import { z } from "zod";
 import { Dropped, connect } from "@amuse/api/client";
 import { activeT } from "./i18n/language.ts";
-import { resumeOnReturn } from "./return.ts";
+import { FOREGROUND, resumeOnReturn } from "./return.ts";
 import { standsAfterReturn, wordsFor } from "./shown.ts";
 
 const Asked = z.object({ id: z.number().optional() });
@@ -86,4 +87,34 @@ test("a page that comes back reconnects, says the drop in the app's words, and g
     session.close();
     await at.close();
   }
+});
+
+test("the Android app in front again, and a change of network, check the connection too", () => {
+  const events = new EventTarget();
+  const network = new EventTarget();
+  let onScreen = false;
+  let resumed = 0;
+  const stop = resumeOnReturn(() => resumed++, { events, network, visible: () => onScreen });
+  try {
+    // MainActivity.onResume says so before the WebView may have told the page it is visible
+    events.dispatchEvent(new Event(FOREGROUND));
+    assert.equal(resumed, 1, "the app's word is enough");
+    // Wi-Fi to mobile data: no `online` (it was never offline), only the network's change
+    network.dispatchEvent(new Event("change"));
+    assert.equal(resumed, 1, "not while hidden");
+    onScreen = true;
+    network.dispatchEvent(new Event("change"));
+    events.dispatchEvent(new Event("online"));
+    assert.equal(resumed, 3);
+  } finally {
+    stop();
+  }
+  events.dispatchEvent(new Event(FOREGROUND));
+  network.dispatchEvent(new Event("change"));
+  assert.equal(resumed, 3, "and nothing once it stops listening");
+});
+
+test("the Android app's foreground event is the one the page listens for", async () => {
+  const kotlin = await readFile(new URL("../../android/app/src/main/java/live/amuse/app/PageSignals.kt", import.meta.url), "utf8");
+  assert.match(kotlin, new RegExp(`const val FOREGROUND = "${FOREGROUND}"`));
 });

@@ -58,7 +58,8 @@ export const bannerActive = (b: Browser) =>
 export const stoppable = (b: Browser) => b.status !== "completed" && b.status !== "failed" && b.status !== "stopped";
 
 /** The line under the agent's name: its activity, or "Needs approval" while one is pending. */
-export type AgentLine = { icon: "list" | "tool" | "approval"; text: string };
+/** `connecting`: not Muse's, the page's own (the link to the server is not live) */
+export type AgentLine = { icon: "list" | "tool" | "approval" | "connecting"; text: string };
 
 export function agentLine(state: State, t: Messages = activeT()): AgentLine | null {
   const { activity } = state;

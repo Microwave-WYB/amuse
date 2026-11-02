@@ -1,23 +1,24 @@
 /**
  * Settings › Security: the PIN (set or change it, how long an unlock lasts, lock now), the password (change it, lock
- * this device), and the devices that can open Amuse (approve a waiting one, remove a trusted one). What needs the PIN
+ * this device), and the devices signed in (remove one, which signs it out). What needs the PIN
  * is the server's to say: a change it holds asks for the PIN, then goes again.
  */
 import { useCallback, useEffect, useState } from "react";
-import { Check, Laptop } from "lucide-react";
+import { Check, Laptop, Smartphone, Tablet } from "lucide-react";
 import { Button } from "./Button";
 import { ConfirmSheet } from "./ConfirmSheet";
-import { DEVICE_ICONS } from "./DeviceSheet";
 import { usePin } from "./PinSheet";
 import { useT } from "../i18n/react.ts";
 import { useFail } from "../ask.tsx";
-import { type AccountState, type DeviceInfo, accountState, approveDevice, changePassword, denyDevice, lockPin, revokeDevice, setUnlockMinutes } from "../account.ts";
-import { describeDevice } from "../device.ts";
+import { type AccountState, type DeviceInfo, accountState, changePassword, lockPin, revokeDevice, setUnlockMinutes } from "../account.ts";
+import { type DeviceKind, describeDevice } from "../device.ts";
 import { moment } from "../schedules.ts";
 import { type Said, withPin } from "../pin.ts";
 import { lock } from "../connection.ts";
 
 const LENGTHS = [1, 5, 15, 30];
+
+const DEVICE_ICONS: Record<DeviceKind, typeof Laptop> = { phone: Smartphone, tablet: Tablet, computer: Laptop };
 
 /** A group's heading, as General's. */
 function Heading({ children, first = false }: { children: string; first?: boolean }) {
@@ -136,23 +137,12 @@ export function Security() {
                   {device.id === state.device ? ` · ${t.devices.thisDevice}` : ""}
                 </span>
                 <span className="block truncate text-[12px]" style={{ color: "var(--text-secondary)" }}>
-                  {device.waiting ? t.devices.waitingTitle : t.devices.seen(moment(device.seen), device.address)}
+                  {t.devices.seen(moment(device.seen), device.address)}
                 </span>
               </span>
-              {device.waiting ? (
-                <>
-                  <Button onCard onClick={() => void run(() => denyDevice(device.id))}>
-                    {t.devices.deny}
-                  </Button>
-                  <Button onCard tone="accent" onClick={() => void run(() => approveDevice(device.id))}>
-                    {t.devices.approve}
-                  </Button>
-                </>
-              ) : (
-                <Button onCard tone="danger" onClick={() => setRemoving(device)}>
-                  {t.devices.remove}
-                </Button>
-              )}
+              <Button onCard tone="danger" onClick={() => setRemoving(device)}>
+                {t.devices.remove}
+              </Button>
             </li>
           );
         })}

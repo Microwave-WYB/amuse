@@ -92,7 +92,8 @@ test("a repeatable call lost to a drop waits for the reconnect and is sent once 
     at.quiet(false);
     at.drop();
     assert.deepEqual(await lost, { accounts: [] });
-    assert.deepEqual(at.asks, ["apps.accounts", "apps.accounts"], "sent again once, after the reconnect");
+    // (chats.list: the reconnect catching up)
+    assert.deepEqual(at.asks.filter((m) => m !== "chats.list"), ["apps.accounts", "apps.accounts"], "sent again once, after the reconnect");
   } finally {
     session.close();
     await at.close();
@@ -115,7 +116,7 @@ test("a call that must not go twice says the server cannot be reached, in the us
     at.quiet(false);
     session.resume();
     await session.call("apps.accounts", {});
-    assert.deepEqual(at.asks, ["chats.create", "apps.accounts"], "chats.create went once");
+    assert.deepEqual(at.asks.filter((m) => m !== "chats.list"), ["chats.create", "apps.accounts"], "chats.create went once");
   } finally {
     session.close();
     await at.close();

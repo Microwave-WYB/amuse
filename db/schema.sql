@@ -129,8 +129,6 @@ CREATE TABLE pin (
 CREATE TABLE devices (
   id text primary key,
   digest text unique,
-  trusted integer not null check (trusted in (0, 1)),
-  asked text,
   agent text not null,
   address text not null,
   at text not null,
@@ -160,4 +158,5 @@ INSERT INTO schema_migrations (version) VALUES
   ('20261023120000'),
   ('20261023234842'),
   ('20261024034628'),
-  ('20261024120000');
+  ('20261024120000'),
+  ('20261101040750');

@@ -9,6 +9,8 @@ import android.graphics.Bitmap
 import android.graphics.Color
 import android.hardware.biometrics.BiometricManager
 import android.hardware.biometrics.BiometricPrompt
+import android.net.ConnectivityManager
+import android.net.Network
 import android.net.Uri
 import android.net.http.SslError
 import android.os.Build
@@ -56,6 +58,10 @@ class MainActivity : ComponentActivity() {
     private var microphoneResult: Boolean? = null
     private val savedFiles by lazy { getSharedPreferences("amuse_downloads", MODE_PRIVATE) }
     private val downloading = mutableSetOf<String>()
+    /** A new default network (Wi-Fi to mobile data, say) while in front: the page checks its socket, which may have died with the old one. */
+    private val networkChanges = object : ConnectivityManager.NetworkCallback() {
+        override fun onAvailable(network: Network) { runOnUiThread { if (foreground) tellPageInFront() } }
+    }
 
     private val documentPicker = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         pickedFiles = pickedUris(result.resultCode, result.data)
@@ -72,6 +78,7 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         WebView.setWebContentsDebuggingEnabled(BuildConfig.DEBUG)
         vault = SessionVault(this)
+        getSystemService(ConnectivityManager::class.java).registerDefaultNetworkCallback(networkChanges)
         val savedServer = preferences.getString("server", null)?.let { runCatching { ServerAddress.parse(it) }.getOrNull() }
         state = state.copy(server = savedServer ?: ServerAddress.parse(ServerAddress.EXAMPLE),
             configured = savedServer != null, settingsVisible = savedServer == null,
@@ -114,9 +121,16 @@ class MainActivity : ComponentActivity() {
         pendingUnlock?.let { pendingUnlock = null; finishUnlock(it.second, it.first) }
         microphoneResult?.let { microphoneResult = null; finishMicrophonePermission(it) }
         webView?.onResume()
+        tellPageInFront()
         if (state.pickerSuspended) resumePicker()
         openSavedSession()
     }
+
+    /**
+     * The page cannot always tell it is in front again (the WebView does not reliably say so), and its socket may have
+     * died in the background without a close: say so, and the page checks the connection and fetches what it missed.
+     */
+    private fun tellPageInFront() { webView?.evaluateJavascript(PageSignals.FOREGROUND_SCRIPT, null) }
 
     override fun onPause() {
         captureSession()
@@ -143,6 +157,7 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        getSystemService(ConnectivityManager::class.java).unregisterNetworkCallback(networkChanges)
         cancelAuthentication()
         denyMicrophonePermission()
         releaseWebView(webView)

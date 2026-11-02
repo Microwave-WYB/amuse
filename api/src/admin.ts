@@ -8,7 +8,7 @@
  *   chats                 the chats, with how many events each has
  *   reset-password        forget the master password and every session: the next visit sets a new one
  *   reset-pin             forget the PIN (a forgotten one) and sign every device out: the PIN is off until one is set
- *   reset-devices         trust no device (every one lost): every session ends, and the next right password trusts its device
+ *   reset-devices         forget every device (one lost, say): every session ends, and each is back with the password
  *   schema                write db/schema.sql from the migrations
  *   restore-secret-files --yes  write keys.json and sandbox-secrets.json back from their sealed copies in the database (to go back to an older Amuse, or to read them)
  *   forget-secret-files --yes   delete those sealed copies, once the Vault is known to hold everything
@@ -168,7 +168,7 @@ async function main(argv: string[]): Promise<void> {
         return void console.log("The PIN is forgotten, and every device is signed out. Sign in with the password: the PIN is off until you set one in Settings › Security.");
       case "reset-devices":
         resetDevices(db);
-        return void console.log("No device is trusted now, and every one is signed out. The next device to sign in with the password is trusted.");
+        return void console.log("Every device is forgotten and signed out. Sign in again with the password.");
       default:
         usage();
     }

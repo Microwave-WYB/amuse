@@ -271,7 +271,7 @@ test("the first visit sets the master password and the PIN, and trusts its devic
     });
 
     assert.equal((await post("/unlock", { password: "wrong one!" })).status, 401);
-    // locked, the trusted device signs in again with the password alone
+    // locked, the device signs in again with the password
     assert.equal((await post("/lock", {}, { cookie: device })).status, 204);
     const again = await post("/unlock", { password: "correct horse" }, { cookie: device });
     assert.equal(again.status, 204);
@@ -281,21 +281,19 @@ test("the first visit sets the master password and the PIN, and trusts its devic
   }
 });
 
-test("changing the password needs the PIN and ends every other session, the devices staying trusted; locking ends this one", async () => {
+test("changing the password needs the PIN and ends every other session, the devices staying listed; locking ends this one", async () => {
   const { http, post, cookieOf, jar, opens, close } = await guarded();
   try {
     const set = await post("/setup", { password: "correct horse", pin: "135790" });
     const mine = cookieOf(set);
-    // a second device waits, is approved, and is in on its next poll
-    const asked = await post("/unlock", { password: "correct horse" });
-    assert.equal(asked.status, 202);
-    const otherDevice = jar(asked);
-    const [waiting] = (await (await fetch(`${http}/account`, { headers: { cookie: mine } })).json()).devices.filter((d: { trusted: boolean }) => !d.trusted);
-    assert.equal((await post("/account/devices/approve", { id: waiting.id }, { cookie: mine })).status, 204);
-    const admitted = await fetch(`${http}/unlock`, { headers: { cookie: otherDevice } });
-    assert.equal(admitted.status, 204);
-    const other = cookieOf(admitted);
+    // a second device is in with the password alone
+    const entered = await post("/unlock", { password: "correct horse" });
+    assert.equal(entered.status, 204);
+    const otherDevice = jar(entered).split("; ").find((c) => c.startsWith("amuse-device=")) ?? "";
+    assert.ok(otherDevice, "with a cookie of its own");
+    const other = cookieOf(entered);
     assert.equal(await opens({ cookie: other }), "open");
+    assert.equal((await (await fetch(`${http}/account`, { headers: { cookie: mine } })).json()).devices.length, 2);
 
     assert.equal((await post("/password", { current: "wrong one!", next: "battery staple" }, { cookie: mine })).status, 401);
     assert.equal(
@@ -317,7 +315,7 @@ test("changing the password needs the PIN and ends every other session, the devi
     assert.equal(await opens({ cookie: mine }), "refused");
     assert.equal(await opens({ cookie: now }), "open");
     assert.equal((await post("/unlock", { password: "correct horse" }, { cookie: otherDevice })).status, 401);
-    assert.equal((await post("/unlock", { password: "battery staple" }, { cookie: otherDevice })).status, 204, "still trusted");
+    assert.equal((await post("/unlock", { password: "battery staple" }, { cookie: otherDevice })).status, 204, "the new password is enough on it");
 
     assert.equal((await post("/lock", {}, { cookie: now })).status, 204);
     assert.equal(await opens({ cookie: now }), "refused");

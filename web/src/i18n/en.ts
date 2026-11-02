@@ -250,8 +250,6 @@ export const en = {
     wrongPassword: "That is not the password.",
     pin: "PIN (6 digits)",
     pinAgain: "PIN again",
-    waitingTitle: "Waiting for approval",
-    waitingHelp: "Open Amuse on a device that is already signed in, and approve this one there.",
   },
   pin: {
     setTitle: "Set a PIN",
@@ -281,17 +279,13 @@ export const en = {
     dontUse: "Don't use a PIN",
   },
   devices: {
-    waitingTitle: "A new device wants to sign in",
-    waitingHelp: "Approve it only if you are signing in on it yourself, right now.",
-    approve: "Approve",
-    deny: "Turn away",
     unknown: "A device",
     before: "Signed in before the update",
     thisDevice: "This device",
     seen: (when: string, address: string) => (address ? `${when} · ${address}` : when),
     remove: "Remove",
     removeTitle: (name: string) => `Remove ${name}?`,
-    removeHelp: "It is signed out, and needs a trusted device's approval to sign in again.",
+    removeHelp: "It is signed out, and needs the password to sign in again.",
   },
   /** "Amuse's computer": where the agent's commands run; `name` is the assistant's. */
   computer: (name: string) => `${name}'s computer`,
@@ -534,6 +528,8 @@ export const en = {
       waiting_for_agents: "Waiting for agents",
     },
     needsApproval: "Needs approval",
+    /** the link to the server is down or being checked (the app came back from the background, the network changed) */
+    connecting: "Connecting…",
   },
   cards: {
     openTask: "Open task details",
@@ -673,7 +669,7 @@ export const en = {
       stayUnlocked: "Stays unlocked for",
       minutes: (count: number) => (count === 1 ? "1 minute" : `${count} minutes`),
       devices: "Devices",
-      devicesHelp: "The devices that can open Amuse. A new one waits until a device here approves it.",
+      devicesHelp: "The devices signed in to Amuse. Remove one you no longer use or have lost.",
       usePin: "Use a PIN",
       pinOn: "On: sensitive actions ask for it",
       pinOff: "Off",

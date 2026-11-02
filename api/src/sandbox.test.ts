@@ -65,7 +65,7 @@ test("the server refuses every route to the sandbox's network, and to Amuse's ow
       ["POST", "/lock", json],
       ["GET", "/account", {}],
       ["POST", "/account/pin/unlock", json],
-      ["POST", "/account/devices/approve", json],
+      ["POST", "/account/devices/revoke", json],
       ["GET", "/files/f-1", {}],
       ["POST", "/files", { "content-type": "image/png", "x-file-name": "a.png" }],
       ["POST", "/transcribe", { "content-type": "audio/webm" }],

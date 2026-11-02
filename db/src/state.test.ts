@@ -164,7 +164,7 @@ test("an import that fails is rolled back whole; the files are as they were, not
 
   writeFileSync(join(dir, "chats", "c-1.jsonl"), journal(3));
   const again = await migrate(db, known, { backups: join(dir, "backups"), context: context(dir) });
-  assert.deepEqual(again.ran.map((m) => m.name), ["import_json", "vault", "import_secrets", "account_security", "browser_sessions", "announced_changes", "optional_pin"]);
+  assert.deepEqual(again.ran.map((m) => m.name), ["import_json", "vault", "import_secrets", "account_security", "browser_sessions", "announced_changes", "optional_pin", "no_device_approval"]);
   assert.ok(again.backup && existsSync(again.backup), "a copy is made, as the database now has a step applied");
   assert.equal(query(db, count, "select count(*) as n from events")[0]?.n, 7);
   assert.equal(query(db, count, "select count(*) as n from app_rules")[0]?.n, 1);

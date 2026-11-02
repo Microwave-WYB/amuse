@@ -68,14 +68,14 @@ interface Upgraded {
 /** What each release's instance must still have after the upgrade: its own, by version. */
 const facts: Record<string, (upgraded: Upgraded) => Promise<void>> = {
   "0.1.0": async ({ db, where }) => {
-    // the owner's password still works, and the two sessions they had are kept, each on a device now trusted
+    // the owner's password still works, and the two sessions they had are kept, each on a device of its own
     const access = sqliteAccess(db);
     assert.equal(access.ready(), true);
     assert.equal(await access.login("not the password", null, seen), null);
     assert.equal(query(db, z.object({ n: z.number() }), "select count(*) as n from sessions")[0]?.n, 2);
-    assert.deepEqual(access.devices().map((d) => d.trusted), [true, true]);
-    // a device that was never signed in waits for one of them
-    assert.equal((await access.login("fixture-password-0.1.0", null, seen))?.kind, "waiting");
+    assert.equal(access.devices().length, 2);
+    // a device that was never signed in is in with the password alone
+    assert.ok((await access.login("fixture-password-0.1.0", null, seen))?.device);
     // there is no PIN yet, and the app asks for one
     assert.equal(sqlitePin(db).isSet(), false);
     assert.equal(sqlitePin(db).reminder(), "set");
@@ -201,14 +201,12 @@ test("an instance upgraded from before the PIN asks for one, and keeps everythin
   });
   const http = `http://127.0.0.1:${server.port}`;
   try {
-    // a new device signs in, and one of the devices from before lets it in, as it would on its card
-    const asked = await access.login("fixture-password-0.1.0", null, seen);
-    assert.ok(asked?.kind === "waiting" && asked.device);
-    const waiting = access.devices().find((d) => !d.trusted);
-    assert.ok(waiting && access.approve(waiting.id));
-    const admitted = access.admitted(asked.device, seen);
-    assert.ok(admitted?.kind === "in");
-    const cookie = `amuse=${encodeURIComponent(admitted.session)}`;
+    // a new device signs in with the password
+    const entered = await access.login("fixture-password-0.1.0", null, seen);
+    assert.ok(entered);
+    const other = access.devices()[0];
+    assert.ok(other);
+    const cookie = `amuse=${encodeURIComponent(entered.session)}`;
     const get = async () => z.object({ pin: z.object({ set: z.boolean(), reminder: z.string().nullable() }) }).parse(await (await fetch(`${http}/account`, { headers: { cookie } })).json()).pin;
     const post = (path: string, body: unknown) => fetch(`${http}${path}`, { method: "POST", headers: { "content-type": "application/json", cookie }, body: JSON.stringify(body) });
     const ws = new WebSocket(`ws://127.0.0.1:${server.port}/rpc`, { headers: { cookie } });
@@ -250,7 +248,7 @@ test("an instance upgraded from before the PIN asks for one, and keeps everythin
     // and on the account: the password, devices, a longer unlock
     for (const [path, body] of [
       ["/password", { current: "fixture-password-0.1.0", next: "a new password" }],
-      ["/account/devices/revoke", { id: waiting.id }],
+      ["/account/devices/revoke", { id: other.id }],
       ["/account/pin/minutes", { minutes: 30 }],
     ] satisfies [string, unknown][]) {
       const refused = await post(path, body);
