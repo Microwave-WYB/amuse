@@ -299,7 +299,7 @@ test("a retried note turn takes the user's unread message too", async () => {
   agent.prompt({ kind: "note", text: "[task t-1 completed] done" }, io);
   await until(2);
   assert.equal(seen.length, 1);
-  assert.match(seen[0]?.[0] ?? "", /also check tomorrow[\s\S]*The user has also written since/, "it took the message in, and was told to answer it");
+  assert.match(seen[0]?.[0] ?? "", /the user has also written since[\s\S]*The user's newest message:\nalso check tomorrow/, "it took the message in, and was told to answer it, last");
 });
 
 test("a note turn that read the user's message mid-turn and then fails is recorded as a turn for the user", async () => {

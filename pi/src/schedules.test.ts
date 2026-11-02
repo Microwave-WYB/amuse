@@ -86,3 +86,38 @@ test("list_schedules gives every schedule in force with its full id, how it runs
   const once: Schedule = { ...of("s-1", "Call", "active", "2026-10-22T16:00:00Z"), when: { kind: "once", at: "2026-10-22T16:00:00Z" } };
   assert.equal(scheduleLine(once, "Asia/Shanghai"), "s-1 | Call | active | once at 2026-10-23 00:00 | next 2026-10-23 00:00");
 });
+
+test("list_schedules with an id gives that schedule's instructions in full, so changing it loses nothing", async () => {
+  const long = `Remind me at 8 to take ${"the blue pill, the white pill, ".repeat(12)}and the fish oil.`;
+  const meds: Schedule = {
+    kind: "schedule",
+    id: "s-meds",
+    at: "2026-10-21T00:00:00Z",
+    title: "Medication",
+    instructions: long,
+    when: { kind: "repeat", cron: "0 8 * * *", timezone: "UTC" },
+    status: "active",
+    next: "2026-10-22T08:00:00Z",
+    running: false,
+    last: null,
+    needs: null,
+    preset: false,
+    goal: null,
+  };
+  let listed = "";
+  const { agent, io, until } = await chat(
+    [
+      fauxAssistantMessage(fauxToolCall("list_schedules", { status: "Looking", id: "s-meds" }), { stopReason: "toolUse" }),
+      (context: TranscriptContext) => {
+        const result = context.messages.findLast((m) => m.role === "toolResult");
+        listed = result?.role === "toolResult" ? result.content.map((c) => (c.type === "text" ? c.text : "")).join("") : "";
+        return fauxAssistantMessage("Done.");
+      },
+    ],
+    { schedules: [meds] },
+  );
+  agent.prompt({ kind: "message", text: "add vitamin D to my medication reminder", attachments: [], quote: null }, io);
+  await until(1);
+  assert.ok(listed.startsWith("s-meds | Medication | active"));
+  assert.ok(listed.endsWith(`Instructions (in full):\n${long}`));
+});

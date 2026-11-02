@@ -102,11 +102,16 @@ export function scheduleTools(io: () => AgentIO, files?: Workspace): ToolDefinit
       name: "list_schedules",
       label: "List schedules",
       description:
-        "The schedules there are now, active and paused: each with its full id, title, when it runs and when next. Look here for the id before you cancel one, rather than from memory.",
-      parameters: Type.Object({ status }),
-      async execute() {
+        "The schedules there are now, active and paused: each with its full id, title, when it runs and when next. Look here for the id before you cancel one, rather than from memory. " +
+        "With `id`, that one schedule with its full instructions: read them before you change a schedule (cancel it and set it up again), so nothing the user asked for in it is lost.",
+      parameters: Type.Object({ status, id: Type.Optional(Type.String({ description: "A schedule's full id, for its full instructions" })) }),
+      async execute(_, { id }) {
         const agent = io();
         const { timezone } = agent.time();
+        if (id?.trim()) {
+          const one = agent.schedules().find((s) => s.id === id.trim());
+          return text(one ? `${scheduleLine(one, timezone)}\nInstructions (in full):\n${one.instructions}` : `There is no schedule ${id}.`);
+        }
         const now = agent.schedules().filter((s) => s.status === "active" || s.status === "paused");
         if (now.length === 0) return text("There are no schedules.");
         return text(now.map((s) => scheduleLine(s, timezone)).join("\n"));
@@ -128,7 +133,7 @@ export function scheduleTools(io: () => AgentIO, files?: Workspace): ToolDefinit
 const background = [
   ...helperRules,
   "This run is one scheduled task.",
-  "If there is something the user should hear, call `report` once with it: the facts, in the user's language, plain text. If nothing is worth telling (no new mail that matters, nothing changed), do not report: the user is not to be bothered for nothing.",
+  "If there is something the user should hear, call `report` once with it: one to three short sentences of plain prose in the user's language, no headings or bullet lists. If nothing is worth telling (no new mail that matters, nothing changed), do not report: the user is not to be bothered for nothing.",
   "When done, end with one short line, in the user's language, on what you did and found; it is kept as the run's record, not shown in the chat.",
 ].join("\n");
 

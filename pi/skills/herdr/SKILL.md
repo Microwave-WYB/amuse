@@ -1,6 +1,6 @@
 ---
 name: herdr
-description: "Terminals you share with the user, through herdr: anything that goes on running (a dev server, a watcher), anything interactive (a CLI login that asks for a code, a REPL), and coding agents such as Claude Code or Codex in your sandbox. Read before you start something that keeps running or needs a terminal, or when the user asks about the terminals."
+description: "Shared terminals in the sandbox through herdr (long-running processes, interactive CLI logins, REPLs, coding agents)."
 ---
 
 # Terminals, through herdr

@@ -1,6 +1,6 @@
 ---
 name: memory
-description: Remembering things about the user, and keeping the memory files (memory/) in order. Read before remembering, forgetting or changing memory files.
+description: Reading, tracing or forgetting memory files (`memory_get`, `memory_explain`, `forget`, `people/`, `groups/`). `remember` and `memory_search` are already active.
 ---
 
 # Memory

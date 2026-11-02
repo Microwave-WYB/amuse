@@ -28,6 +28,8 @@ const journalOf = (day: string) => `${MEMORY}/journal/${day}.md`;
 
 /** MEMORY.md's sections, in order. */
 const SECTIONS = ["Facts", "Preferences", "Commitments"];
+/** Which sections of MEMORY.md go first in the turn's brief so a long Facts section never crowds them out. */
+const PRIORITY = ["Preferences", "Commitments"];
 const START = ["# Memory", "", "What is true now about the user. Each line ends with its id; its record is in journal/.", "", ...SECTIONS.flatMap((s) => [`## ${s}`, ""])].join("\n");
 
 /** How much of a file goes with every turn. */
@@ -35,7 +37,66 @@ const BRIEF_LIMIT = 6_000;
 
 type Text = { content: { type: "text"; text: string }[]; details: null };
 const text = (value: string): Text => ({ content: [{ type: "text", text: value }], details: null });
-const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n)}\n… (cut; read the rest with memory_get)` : s);
+/** The start of a file that fits in `n`, cut at a line's end. */
+const clip = (s: string, n: number) => {
+  if (s.length <= n) return s;
+  const end = s.lastIndexOf("\n", n);
+  return `${s.slice(0, end > 0 ? end : n)}\n… (cut; memory_search finds the rest)`;
+};
+
+/** The newest lines of a section (its last: entries are added at its end) that fit in `room`, whole, saying how many older ones are left out. */
+function newestLines(body: string, room: number): string {
+  if (body.length <= room) return body;
+  const lines = body.split("\n");
+  const kept: string[] = [];
+  let used = 0;
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const line = lines[i] ?? "";
+    if (used + line.length + 1 > room) {
+      // a single line longer than the room: its start, so the section is never empty
+      if (kept.length === 0) kept.push(`${line.slice(0, Math.max(0, room - 1))}…`);
+      break;
+    }
+    kept.unshift(line);
+    used += line.length + 1;
+  }
+  const left = lines.length - kept.length;
+  return left > 0 ? `(${left} older lines not shown; memory_search finds them)\n${kept.join("\n")}` : kept.join("\n");
+}
+
+/**
+ * MEMORY.md for a turn's brief: what it says of itself (how its ids work), then `## Preferences` and `## Commitments`, then
+ * `## Facts` and any other sections in what room remains of `limit`, so a long list of facts never pushes the user's
+ * preferences or open commitments out of sight. A section too long for its room keeps its newest lines, whole.
+ */
+export function briefMemory(content: string, limit = BRIEF_LIMIT): string {
+  const trimmed = content.trim();
+  const first = trimmed.search(/^## /m);
+  if (first < 0) return clip(trimmed, limit);
+  const preamble = trimmed.slice(0, first).trim();
+  const parsed = trimmed
+    .slice(first)
+    .split(/\n(?=## )/)
+    .flatMap((block) => {
+      const match = block.match(/^## ([^\n]+)\n?([\s\S]*)$/);
+      return match && match[2]?.trim() ? [{ title: match[1]!.trim(), body: match[2].trim() }] : [];
+    });
+  const rank = (title: string) => {
+    const at = PRIORITY.indexOf(title);
+    return at >= 0 ? at : PRIORITY.length;
+  };
+  const ordered = [...parsed].sort((a, b) => rank(a.title) - rank(b.title));
+  const intro = preamble && preamble.length <= 400 ? [preamble] : [];
+  let remaining = limit - intro.reduce((n, p) => n + p.length + 2, 0);
+  const sections = ordered.map((section, i) => {
+    const after = ordered.length - 1 - i;
+    const share = after > 0 ? Math.max(1_500, remaining - after * 1_500) : Math.max(500, remaining);
+    const rendered = `## ${section.title}\n${newestLines(section.body, share)}`;
+    remaining = Math.max(0, remaining - rendered.length - 2);
+    return rendered;
+  });
+  return [...intro, ...sections].join("\n\n");
+}
 
 async function read(files: Workspace, path: string): Promise<string | null> {
   if (!(await files.exists(path))) return null;
@@ -60,7 +121,9 @@ export async function memoryBrief(files: Workspace): Promise<string> {
       [ALIGNMENT, "How to work with the user now (from your nightly reflection)"],
     ].map(async ([path, title]) => {
       const content = path ? await read(files, path).catch(() => null) : null;
-      return content?.trim() ? `## ${title} (${path})\n${clip(content.trim(), BRIEF_LIMIT)}` : null;
+      if (!content?.trim()) return null;
+      const body = path === FILE ? briefMemory(content, BRIEF_LIMIT) : clip(content.trim(), BRIEF_LIMIT);
+      return `## ${title} (${path})\n${body}`;
     }),
   );
   const goals = (await listGoals(files).catch(() => [])).filter((g) => g.status === "active");
@@ -194,7 +257,7 @@ export function memoryReadTools(io: () => AgentIO, files: Workspace): ToolDefini
       name: "memory_search",
       label: "Look in memory",
       description:
-        "Search everything you remember and every chat: memory/ (MEMORY.md, USER.md, the dated journal, people and group pages, reflections) and what was said in the chats. Gives matching lines with where they are (file and line). Use it before asking the user something they may have told you, or when they refer to something past.",
+        "Search everything you remember and every chat: memory/ (MEMORY.md, USER.md, the dated journal, people and group pages, reflections) and what was said in the chats. Gives matching lines with where they are (file and line). Use it when the user refers to earlier chats or details not in the turn's memory brief.",
       parameters: Type.Object({ status, query: Type.String({ description: "A few words to find" }) }),
       async execute(_, { query }) {
         const lines = await search(files, query);

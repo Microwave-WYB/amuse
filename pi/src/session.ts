@@ -20,7 +20,6 @@ import {
   type ToolDefinition,
   createAgentSession,
   createCodemodeExtension,
-  createExtensionRuntime,
 } from "@earendil-works/pi-coding-agent";
 import { type Api, type CredentialStore, type Model, type ModelThinkingLevel, clampThinkingLevel } from "@earendil-works/pi-ai";
 import type { ThinkingLevel } from "@amuse/protocol";
@@ -63,27 +62,6 @@ export function parseModel(spec: string): { provider: string; id: string } | und
   const provider = spec.slice(0, slash).trim();
   const id = spec.slice(slash + 1).trim();
   return slash > 0 && provider && id ? { provider, id } : undefined;
-}
-
-/** A resource loader that discovers nothing, so Pi adds no prompts, skills or AGENTS.md of its own. */
-function bare(system: string): ResourceLoader {
-  return {
-    getExtensions: () => ({
-      extensions: [],
-      errors: [],
-      runtime: createExtensionRuntime(),
-    }),
-    getSkills: () => ({ skills: [], diagnostics: [] }),
-    getPrompts: () => ({ prompts: [], diagnostics: [] }),
-    getThemes: () => ({ themes: [], diagnostics: [] }),
-    getAgentsFiles: () => ({ agentsFiles: [] }),
-    getSystemPrompt: () => system,
-    getSystemPromptSource: () => undefined,
-    getAppendSystemPrompt: () => [],
-    getAppendSystemPromptSources: () => [],
-    extendResources: () => {},
-    reload: async () => {},
-  };
 }
 
 const runtimes = new Map<string, Promise<ModelRuntime>>();
@@ -134,16 +112,35 @@ export interface PiSession {
   close(): void;
 }
 
+const CODEMODE_DESCRIPTION =
+  "Run a JavaScript async arrow function `async () => { ... }` that calls multiple tools via `tools.<name>(args)` (each returns a Promise<string>) and returns a result; use only to batch or chain many calls in one step.";
+
 /**
- * Codemode's resources: the system prompt as given, and Pi's codemode extension (`on`: the tools stay
- * declared as well, each saying how a script calls it), nothing discovered from disk.
+ * A session's resources: nothing discovered from disk (no extensions, skills, prompts or AGENTS.md), the system prompt sent
+ * byte for byte as given, and, with `codemode`, Pi's codemode tool, with a short description and without its per-tool
+ * "Codemode: …" notes and guidelines. The prompt is pinned the way Pi supports, a `before_agent_start` handler returning it:
+ * Pi then sends that text as the request's system prompt instead of the one it builds (which adds `<cwd>` with the
+ * session's scratch folder, new every turn, and tool guidelines).
  */
-async function withCodemode(system: string, cwd: string): Promise<ResourceLoader> {
+async function resources(system: string, cwd: string, codemode: boolean): Promise<ResourceLoader> {
+  const codemodeTool = codemode ? createCodemodeExtension({ mode: "on", models: false }) : undefined;
   const loader = new DefaultResourceLoader({
     cwd,
     agentDir: cwd,
     systemPrompt: system,
-    extensionFactories: [createCodemodeExtension({ mode: "on", models: false })],
+    extensionFactories: [
+      (pi) => {
+        pi.on("before_agent_start", () => ({ systemPrompt: system }));
+        codemodeTool?.({
+          ...pi,
+          registerTool(tool) {
+            const { prepareLoadout: _, promptGuidelines: __, ...rest } = tool;
+            pi.registerTool({ ...rest, description: CODEMODE_DESCRIPTION });
+          },
+        });
+      },
+    ],
+    noExtensions: true,
     noSkills: true,
     noPromptTemplates: true,
     noThemes: true,
@@ -213,9 +210,10 @@ export async function sessionOn(
       compaction: { enabled: true },
       retry: { enabled: true, maxRetries: 2 },
     }),
-    resourceLoader: codemode ? await withCodemode(system, cwd) : bare(system),
+    resourceLoader: await resources(system, cwd, codemode),
     noTools: "builtin",
-    tools: [...tools.map((tool) => tool.name), ...(codemode ? ["codemode"] : [])],
+    // codemode first: a tool unlocked mid-turn (skills.ts) is declared in its place in this list, so it must be the last to come
+    tools: [...(codemode ? ["codemode"] : []), ...tools.map((tool) => tool.name)],
     customTools: tools,
   });
   if (caching) {

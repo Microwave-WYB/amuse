@@ -1,6 +1,6 @@
 ---
 name: connections
-description: The user's connections (mail, calendar, sheets, Slack, GitHub, …): connecting one, setting connections up, reading from and acting in them. Read before any of these.
+description: The user's connected apps (mail, calendar, sheets, Slack, GitHub, …): unlocks `request_connection`, `app_tools`, `app_call` and the secret tools (`list_secrets`, `request_secret`, `use_secret`).
 ---
 
 # The user's connections

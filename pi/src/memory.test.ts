@@ -105,3 +105,24 @@ test("things remembered at the same moment are all kept, each with its record", 
   const journal = files.text("memory/journal/2026-10-21.md") ?? "";
   for (const { id } of ids) assert.match(journal, new RegExp(id));
 });
+
+test("memoryBrief puts Preferences and Commitments first so a long Facts section never crowds them out", async () => {
+  const files = memoryWorkspace();
+  for (let i = 0; i < 60; i++) await remember(files, io, { section: "Facts", text: `Fact ${i} ${"x".repeat(120)}`, source: "the user" });
+  await remember(files, io, { section: "Preferences", text: "Keep replies short and direct", source: "the user" });
+  await remember(files, io, { section: "Commitments", text: "Send the camera roll by Sunday", source: "the user" });
+  assert.ok((files.text("memory/MEMORY.md") ?? "").length > 7_000, "Facts alone is past the brief limit");
+  const brief = await memoryBrief(files);
+  const at = (part: string) => brief.indexOf(part);
+  assert.ok(at("## Preferences") > 0 && at("Keep replies short and direct") > at("## Preferences"));
+  assert.ok(at("## Commitments") > at("## Preferences") && at("Send the camera roll by Sunday") > at("## Commitments"));
+  assert.ok(at("## Facts") > at("## Commitments"), "Preferences and Commitments come before Facts");
+  // Facts keeps its newest lines, whole, and says how many older ones are left out, with a tool the turn has
+  assert.match(brief, /\(\d+ older lines not shown; memory_search finds them\)/);
+  assert.match(brief, /Fact 59 x+ \(m-[^)]+\)/, "the newest fact is there");
+  assert.doesNotMatch(brief, /Fact 0 x/, "the oldest is what goes");
+  assert.doesNotMatch(brief, /memory_get/, "no tool the turn does not declare");
+  const facts = brief.slice(brief.indexOf("## Facts"));
+  for (const line of facts.split("\n").slice(2)) if (line.trim()) assert.match(line, /^- Fact \d+ x+ \(m-[^)]+\)$|^## /, `a whole line: ${line.slice(0, 40)}`);
+  assert.match(brief, /What is true now about the user\. Each line ends with its id/, "MEMORY.md's own words on its ids stay");
+});

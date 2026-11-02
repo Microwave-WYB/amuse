@@ -1,6 +1,6 @@
 ---
 name: sandbox
-description: Your own computer for running programs: shell commands, installing software, scripts, dev servers, converting or building things. Read before running a command there.
+description: Your own computer for running programs (shell commands, installs, scripts, dev servers, background jobs); unlocks `run_command`, the file tools and the secret tools.
 ---
 
 # Your sandbox

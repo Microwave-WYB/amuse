@@ -1,6 +1,6 @@
 ---
 name: goals
-description: The user's goals (memory/goals/): adding one, the schedules that serve it, noting progress, the nightly research, muting, finishing and reopening. Read before working on a goal or its files.
+description: The user's goals (memory/goals/): adding one, the schedules that serve it, noting progress, muting, finishing and reopening; unlocks the file tools for goal files.
 ---
 
 # Goals

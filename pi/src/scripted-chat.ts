@@ -7,6 +7,7 @@ import { type FauxResponseStep, fauxProvider } from "@earendil-works/pi-ai";
 import { type AgentSession, ModelRuntime, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { piAgent } from "./agent.ts";
 import { sessionOn } from "./session.ts";
+import type { Skill } from "./skills.ts";
 
 /**
  * For tests of the chat agent: it on a scripted model (pi-ai's faux provider), and a chat that records
@@ -14,7 +15,7 @@ import { sessionOn } from "./session.ts";
  */
 export async function chat(
   responses: FauxResponseStep[],
-  { tools = [], opened, files, schedules = [], live = "" }: { tools?: ToolDefinition[]; opened?: (session: AgentSession) => void; files?: Workspace; schedules?: Schedule[]; live?: string } = {},
+  { tools = [], opened, files, schedules = [], live = "", skills, codemode = false }: { tools?: ToolDefinition[]; opened?: (session: AgentSession) => void; files?: Workspace; schedules?: Schedule[]; live?: string; skills?: Skill[]; codemode?: boolean } = {},
 ) {
   const models = await ModelRuntime.create({ authPath: join(mkdtempSync(join(tmpdir(), "amuse-auth-")), "auth.json"), modelsPath: null, refreshOnCreate: false });
   const faux = fauxProvider({ provider: "faux", models: [{ id: "scripted" }] });
@@ -55,9 +56,10 @@ export async function chat(
     auth: { kind: "environment" },
     system: "You are a test.",
     ...(files ? { files } : {}),
+    ...(skills ? { skills } : {}),
     rules: memoryRules(),
     open: async (system, own, caching) => {
-      const made = await sessionOn(models, faux.getModel(), system, [...own, ...tools], { caching });
+      const made = await sessionOn(models, faux.getModel(), system, [...own, ...tools], { caching, codemode });
       opened?.(made.session);
       return made;
     },
