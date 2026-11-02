@@ -83,3 +83,35 @@ test("the sidebar's skills: the user's first, a built-in one theirs replaces sai
   assert.deepEqual(removed, ["skills/trips"]);
   await assert.rejects(port.remove("memory"), /not there/, "a built-in one cannot go");
 });
+
+test("every built-in skill has its tools mapped, and the map has no skill that does not ship", async () => {
+  const { BUILT_IN_SKILLS, SKILL_TOOLS } = await import("./skills.ts");
+  const shipped = builtInSkills().map((s) => s.name).sort();
+  assert.deepEqual([...BUILT_IN_SKILLS].sort(), shipped);
+  assert.deepEqual(Object.keys(SKILL_TOOLS).sort(), shipped);
+  for (const name of shipped) assert.ok((SKILL_TOOLS as Record<string, readonly string[]>)[name]?.length, `${name} unlocks something`);
+});
+
+test("every tool a built-in skill names is declared from the start or unlocked by reading it (or a skill it names)", async () => {
+  const { unreachableIn } = await import("./skills.ts");
+  for (const skill of builtInSkills()) assert.deepEqual(unreachableIn(`${skill.description}\n${skill.body}`, skill.name), [], skill.name);
+});
+
+test("what a skill unlocks: its own tools by name; the user's own skill the file tools; nothing more", async () => {
+  const { unlockedBy, SKILL_TOOLS } = await import("./skills.ts");
+  assert.deepEqual(unlockedBy("schedules"), ["schedule", "list_schedules", "cancel_schedule"]);
+  assert.ok(unlockedBy("files").includes("send_file"));
+  assert.deepEqual(new Set(unlockedBy("connections")), new Set(["request_connection", "app_tools", "app_call", "list_secrets", "request_secret", "use_secret"]), "the Composio key is asked for with request_secret, even without a sandbox");
+  assert.deepEqual(unlockedBy("trips"), SKILL_TOOLS.files);
+  assert.deepEqual(unlockedBy("constructor"), SKILL_TOOLS.files, "no prototype key passes for a skill");
+});
+
+test("a text that sends the model to a gated tool must name a skill that unlocks it", async () => {
+  const { unreachableIn } = await import("./skills.ts");
+  assert.deepEqual(unreachableIn("Run it with `run_command`."), ["run_command"]);
+  assert.deepEqual(unreachableIn("Open the sandbox skill and run it with `run_command`."), []);
+  assert.deepEqual(unreachableIn("Open the connections or sandbox skill (`list_secrets`, `request_secret`)."), []);
+  assert.deepEqual(unreachableIn("The delegation, browser and schedules skills say how (`schedule`)."), []);
+  assert.deepEqual(unreachableIn("Use `memory_search`, `say` and `message_run`."), [], "tools declared from the start are always there");
+  assert.deepEqual(unreachableIn("Read the rest with `memory_get`."), ["memory_get"]);
+});

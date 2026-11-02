@@ -32,10 +32,19 @@ export const budget: Budget = { full: 24_000, brief: 8_000 };
 /** A block of the conversation closes once its entities, told in full, come to this many characters. */
 export const blockSize = 6_000;
 
-/** Even in the full window, a long reply or multi-paragraph scheduled report is flattened and shortened so past briefings do not crowd the chat or teach multi-paragraph style. */
+/**
+ * In the chat turn's window, an older long reply (a scheduled report, a briefing) is flattened and shortened so past
+ * briefings do not crowd the chat or teach a multi-paragraph style: to `replyLimit`, or to `paragraphsLimit` when it is
+ * several paragraphs. A schedule's instructions and last summary there are cut to `paragraphsLimit` too. Only in
+ * closed blocks before the newest one, and never one of the latest `keptReplies` replies: everything else (the newest
+ * part of the chat, read_chat, memory_search, a helper's context) has them whole.
+ */
 export const replyLimit = 450;
+export const paragraphsLimit = 240;
+export const keptReplies = 3;
 
-type Detail = "full" | "brief";
+/** `window`: as `full`, but an older long reply or schedule is shortened (see `replyLimit`). */
+type Detail = "full" | "window" | "brief";
 
 const clip = (text: string, max: number) => {
   const flat = text.replace(/\s+/g, " ").trim();
@@ -63,7 +72,8 @@ const repeats = (when: When, zone: string) => (when.kind === "repeat" ? `cron "$
 
 /** One entity as a line (or a few), in full or in brief, its times on the user's clock (`zone`); null for what the agent need not see. */
 export function line(entity: Entity, detail: Detail, zone: string, where: Where = asSent): string | null {
-  const full = detail === "full";
+  const full = detail !== "brief";
+  const shortened = detail === "window";
   const at = localTime(entity.at, zone);
   switch (entity.kind) {
     case "prompt": {
@@ -76,8 +86,8 @@ export function line(entity: Entity, detail: Detail, zone: string, where: Where 
     case "reply": {
       if (!entity.text.trim() && entity.attachments.length === 0) return null;
       const files = entity.attachments.length > 0 ? ` [sent: ${entity.attachments.map(describe(where)).join(", ")}]` : "";
-      const max = full ? (entity.text.includes("\n\n") ? 240 : replyLimit) : 160;
-      return `[${at}] Amuse: ${clip(entity.text, max)}${files}`;
+      const said = !full ? clip(entity.text, 160) : shortened ? clip(entity.text, entity.text.includes("\n\n") ? paragraphsLimit : replyLimit) : entity.text;
+      return `[${at}] Amuse: ${said}${files}`;
     }
     case "browser": {
       const head = `[${at}] Browser task ${entity.id} "${entity.title}" (${entity.status}${entity.live ? ", open" : ""}) at ${entity.url}`;
@@ -113,8 +123,9 @@ export function line(entity: Entity, detail: Detail, zone: string, where: Where 
     case "schedule": {
       const head = `[${at}] Schedule ${entity.id} "${entity.title}" (${entity.status}${entity.running ? ", running" : ""}), ${repeats(entity.when, zone)}`;
       const next = entity.next ? `, next ${localTime(entity.next, zone)}` : "";
-      const asked = full ? `\n  Instructions: ${clip(entity.instructions, 240)}` : "";
-      const last = entity.last ? `\n  Last run ${localTime(entity.last.at, zone)}: ${entity.last.outcome}${full && entity.last.summary ? ` — ${clip(entity.last.summary, 240)}` : ""}` : "";
+      const cut = (text: string) => (shortened ? clip(text, paragraphsLimit) : text);
+      const asked = full ? `\n  Instructions: ${cut(entity.instructions)}` : "";
+      const last = entity.last ? `\n  Last run ${localTime(entity.last.at, zone)}: ${entity.last.outcome}${full ? ` — ${cut(entity.last.summary)}` : ""}` : "";
       return head + next + asked + last;
     }
   }
@@ -153,14 +164,31 @@ function blocksOf(state: State, zone: string, where: Where, size: number): { clo
   return { closed, open };
 }
 
+/** The ids of the latest `count` replies Amuse wrote (with words). */
+function latestReplies(state: State, count: number): Set<string> {
+  const ids = new Set<string>();
+  for (let i = state.entities.length - 1; i >= 0 && ids.size < count; i--) {
+    const e = state.entities[i];
+    if (e?.kind === "reply" && e.text.trim()) ids.add(e.id);
+  }
+  return ids;
+}
+
 /**
  * The conversation as the agent sees it, whole blocks of it: the open block in full, then the closed blocks
  * newest first, in full while `full` lasts (less what the open block may come to), then in brief while `brief`
  * lasts; what is older is only counted. `state` must hold the whole feed (the host's does).
+ *
+ * `chat`: the window of the chat turn itself, where the closed blocks before the newest one shorten their long replies
+ * and schedules (`window`), the latest `keptReplies` replies excepted. Which are shortened moves only as a block closes
+ * or a reply leaves the latest few, so the text still only grows at its end in between.
  */
-export function agentContext(state: State, limits: Budget = budget, where: Where = asSent, size: number = blockSize): string {
+export function agentContext(state: State, limits: Budget = budget, where: Where = asSent, size: number = blockSize, chat = false): string {
   const zone = userZone(state);
   const { closed, open } = blocksOf(state, zone, where, size);
+  const kept = chat ? latestReplies(state, keptReplies) : new Set<string>();
+  const told = (block: Block, i: number) =>
+    chat && i < closed.length - 1 ? block.entities.flatMap((e) => line(e, kept.has(e.id) ? "full" : "window", zone, where) ?? []) : block.full;
   // the open block is short of `size`, so its room is kept whatever it comes to: the choice moves only as a block closes
   let full = limits.full - size;
   let brief = limits.brief;
@@ -169,10 +197,11 @@ export function agentContext(state: State, limits: Budget = budget, where: Where
   for (let i = closed.length - 1; i >= 0; i--) {
     const block = closed[i];
     if (!block) continue;
-    const whole = length(block.full);
+    const lines = told(block, i);
+    const whole = length(lines);
     if (whole <= full) {
       full -= whole;
-      shown.push(block.full);
+      shown.push(lines);
     } else {
       full = 0; // once something is told in brief, nothing older is told in full
       const short = block.entities.flatMap((e) => line(e, "brief", zone, where) ?? []);

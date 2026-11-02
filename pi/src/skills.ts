@@ -79,22 +79,83 @@ export async function allSkills(builtIn: Skill[], files: Workspace | undefined):
   return [...byName.values()].sort((a, b) => a.name.localeCompare(b.name));
 }
 
-/** Tools unlocked when a built-in skill is read with `use_skill`; core chat tools stay declared on every turn. */
-export const SKILL_TOOLS: Record<string, readonly string[]> = {
-  amuse: ["amuse_status", "list_chats", "read_chat", "list_secrets", "request_secret", "use_secret"],
-  browser: ["read_browser", "save_screenshot", "message_run", "answer_question", "stop_run", "list_secrets", "request_secret", "use_secret"],
-  connections: ["request_connection", "app_tools", "app_call"],
-  delegation: ["message_run", "answer_question", "stop_run", "read_browser", "list_chats", "read_chat"],
-  files: ["list_files", "read_file", "write_file", "move_file", "delete_file", "send_file"],
-  goals: ["list_files", "read_file", "write_file", "move_file", "delete_file", "memory_get", "schedule", "list_schedules", "cancel_schedule"],
-  herdr: ["run_command", "job_output", "stop_job", "list_secrets", "request_secret", "use_secret", "list_files", "read_file", "write_file"],
+/** The skills that ship with Amuse (pi/skills/), by name: each has its tools in `SKILL_TOOLS` (a test holds the folders to this list). */
+export const BUILT_IN_SKILLS = ["amuse", "browser", "connections", "delegation", "files", "goals", "herdr", "memory", "sandbox", "schedules"] as const;
+export type BuiltInSkill = (typeof BUILT_IN_SKILLS)[number];
+
+/** The chat's tools that are declared only once a skill that needs them is read (`use_skill`). */
+export type GatedTool =
+  | "request_connection"
+  | "app_tools"
+  | "app_call"
+  | "amuse_status"
+  | "list_chats"
+  | "read_chat"
+  | "save_screenshot"
+  | "list_files"
+  | "read_file"
+  | "write_file"
+  | "move_file"
+  | "delete_file"
+  | "send_file"
+  | "memory_get"
+  | "memory_explain"
+  | "forget"
+  | "schedule"
+  | "list_schedules"
+  | "cancel_schedule"
+  | "run_command"
+  | "list_secrets"
+  | "request_secret"
+  | "use_secret";
+
+const fileTools = ["list_files", "read_file", "write_file", "move_file", "delete_file", "send_file"] as const satisfies readonly GatedTool[];
+const secretTools = ["list_secrets", "request_secret", "use_secret"] as const satisfies readonly GatedTool[];
+const scheduleTools = ["schedule", "list_schedules", "cancel_schedule"] as const satisfies readonly GatedTool[];
+
+/**
+ * What reading each built-in skill unlocks for the rest of the chat turn: every gated tool its SKILL.md names (a test
+ * checks the docs and the system rules against it). Every built-in skill is here, or the build fails. The rest of the
+ * chat's tools are declared on every turn: the core ones, and the controls of work already running (message_run,
+ * answer_question, stop_run, read_browser, job_output, stop_job), so the list a turn starts with depends only on the
+ * setup and the kind of chat, and a provider can cache it.
+ */
+export const SKILL_TOOLS: { readonly [K in BuiltInSkill]: readonly GatedTool[] } = {
+  amuse: ["amuse_status", "list_chats", "read_chat", ...secretTools],
+  browser: ["save_screenshot", "send_file", ...secretTools],
+  connections: ["request_connection", "app_tools", "app_call", ...secretTools],
+  delegation: ["list_chats", "read_chat"],
+  files: fileTools,
+  goals: [...fileTools, "memory_get", ...scheduleTools],
+  herdr: ["run_command", ...secretTools, "list_files", "read_file", "write_file"],
   memory: ["memory_get", "memory_explain", "forget", "list_chats", "read_chat"],
-  sandbox: ["run_command", "job_output", "stop_job", "list_secrets", "request_secret", "use_secret", "list_files", "read_file", "write_file", "move_file", "delete_file", "send_file"],
-  schedules: ["schedule", "list_schedules", "cancel_schedule"],
+  sandbox: ["run_command", ...secretTools, ...fileTools],
+  schedules: scheduleTools,
 };
 
-/** Every tool kept behind a skill until `use_skill` opens one (or background work is already running). */
-export const GATED_TOOLS: ReadonlySet<string> = new Set(Object.values(SKILL_TOOLS).flat());
+/** A skill of the user's own (not one of the built-in names) unlocks the file tools: it says to read the rest of its folder. */
+export const USER_SKILL_TOOLS: readonly GatedTool[] = fileTools;
+
+/** Every tool kept behind a skill until `use_skill` opens one. */
+export const GATED_TOOLS: ReadonlySet<string> = new Set<string>(Object.values(SKILL_TOOLS).flat());
+
+/** The tools reading `skill` unlocks: its own list when it has a built-in name (the user's replacing it too), the file tools for one of the user's. */
+export function unlockedBy(skill: string): readonly GatedTool[] {
+  return Object.hasOwn(SKILL_TOOLS, skill) ? SKILL_TOOLS[skill as BuiltInSkill] : USER_SKILL_TOOLS;
+}
+
+/**
+ * The gated tools `text` names (in backticks) that a turn reading it could not see: not unlocked by `skill` (the skill the
+ * text is, if it is one) nor by a skill it names ("the sandbox skill", "the connections or sandbox skill"). Empty when
+ * every tool it sends the model to is there to call.
+ */
+export function unreachableIn(text: string, skill?: string): string[] {
+  const skills = new Set(skill ? [skill] : []);
+  for (const [, names] of text.matchAll(/\b[Tt]he ((?:[a-z]+(?:, | and | or ))*[a-z]+) skills?\b/g)) for (const name of names?.split(/, | and | or /) ?? []) skills.add(name);
+  const reachable = new Set([...skills].flatMap((name) => (Object.hasOwn(SKILL_TOOLS, name) ? SKILL_TOOLS[name as BuiltInSkill] : [])));
+  const named = [...text.matchAll(/`([a-z_]+)(?:\([^`]*\))?`/g)].map((m) => m[1] ?? "");
+  return [...new Set(named.filter((name) => GATED_TOOLS.has(name) && !reachable.has(name as GatedTool)))];
+}
 
 /** The list every turn gets. */
 export function catalog(skills: Skill[]): string {
@@ -108,14 +169,18 @@ export function catalog(skills: Skill[]): string {
 type Text = { content: { type: "text"; text: string }[]; details: null };
 const say = (text: string): Text => ({ content: [{ type: "text", text }], details: null });
 
-/** Reading a skill, and unlocking the tools that belong to it when `gate` is on. */
+/**
+ * Reading a skill, and, when `gate` is on (the chat turn), unlocking the tools that belong to it (`unlockedBy`) from the
+ * next step of the turn on: Pi asks `prepareLoadout` again between steps, and the tools it stops hiding are added after
+ * those the turn began with. `unlocked`: tools declared from the start all the same (list_chats and read_chat in a side chat).
+ * A hidden tool still runs if called by name, and codemode and the helpers have them all.
+ */
 export function skillTools(
   builtIn: Skill[],
   files: Workspace | undefined,
   { gate = false, unlocked }: { gate?: boolean | undefined; unlocked?: Iterable<string> | (() => Iterable<string>) | undefined } = {},
 ): ToolDefinition[] {
   const opened = new Set<string>();
-  let openAll = false;
   return [
     defineTool({
       name: "use_skill",
@@ -125,10 +190,9 @@ export function skillTools(
       ...(gate
         ? {
             prepareLoadout(loadout) {
-              if (openAll) return {};
               const initial = typeof unlocked === "function" ? unlocked() : (unlocked ?? []);
               const active = new Set<string>(initial);
-              for (const name of opened) for (const tool of SKILL_TOOLS[name] ?? []) active.add(tool);
+              for (const name of opened) for (const tool of unlockedBy(name)) active.add(tool);
               const hiddenDeclarations = loadout.declared.map((t) => t.name).filter((name) => GATED_TOOLS.has(name) && !active.has(name));
               return hiddenDeclarations.length > 0 ? { hiddenDeclarations } : {};
             },
@@ -138,9 +202,8 @@ export function skillTools(
         const skills = await allSkills(builtIn, files);
         const skill = skills.find((s) => s.name === name.trim());
         if (!skill) return say(`There is no skill "${name}". There are: ${skills.map((s) => s.name).join(", ") || "none"}.`);
-        if (skill.name in SKILL_TOOLS) opened.add(skill.name);
-        else openAll = true;
-        const more = skill.from === "built in" ? "" : `\n\n(Its folder is ${skill.from}; other files in it can be read with read_file.)`;
+        opened.add(skill.name);
+        const more = skill.from === "built in" ? "" : `\n\n(Its folder is ${skill.from}; other files in it can be read with read_file. To run what is in it, read the sandbox skill.)`;
         return say(`# ${skill.name}\n\n${skill.body}${more}`);
       },
     }),

@@ -74,7 +74,7 @@ import { BEAT_MS, beatNote, inFlight } from "./heartbeat.ts";
 import { live, liveState } from "./live.ts";
 import { type Timers, realTimers } from "./timers.ts";
 import { type Rules, browserActions, defaultBrowser } from "./policy.ts";
-import { type Budget, type Where, agentContext, budget, mentions, recall } from "./context.ts";
+import { type Budget, type Where, agentContext, blockSize, budget, mentions, recall } from "./context.ts";
 
 /**
  * What ports may record directly: what the agent says (its replies, streamed)
@@ -110,8 +110,11 @@ export interface AgentIO {
   chat: string;
   emit: Emit;
   act(action: AgentAction): Acted;
-  /** The chat so far, as the agent should know it (context.ts): newest in full, older in brief. */
-  context(): string;
+  /**
+   * The chat so far, as the agent should know it (context.ts): newest in full, older in brief. `"chat"`: the chat turn's
+   * own window, where older long replies and schedules are shortened; a helper's context and read_chat have them whole.
+   */
+  context(view?: "chat"): string;
   /** Search this chat however old; `everywhere`: every chat. */
   recall(query: string, everywhere?: boolean): string;
   /** The chats there are. */
@@ -721,7 +724,7 @@ export function createHost(ports: Ports, options: HostOptions = {}): Session {
         if (rooms.get(chat) === at()) ports.prompt({ kind: "aside", text: note }, io);
       },
       running: () => liveState(at().state, changed, clock.now()),
-      context: () => agentContext(at().state, budget, where),
+      context: (view) => agentContext(at().state, budget, where, blockSize, view === "chat"),
       recall(query, everywhere = false) {
         const room = at();
         if (!everywhere) return recall(room.state, query, 10, where);

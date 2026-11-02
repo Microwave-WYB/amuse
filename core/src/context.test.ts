@@ -175,10 +175,48 @@ test("a message sent by tapping a suggested reply is marked so for the agent", (
   assert.equal(context(stateOf(tapped)), "[2026-10-20 08:00] User (tapped one of your suggested replies): Go ahead");
 });
 
-test("long multi-paragraph briefings in the chat are flattened and shortened in the full window so they do not crowd it", () => {
-  const briefing = reply("r1", `Morning briefing: three mails came in.\n\nFirst paragraph ${"a".repeat(300)}\n\nSecond paragraph ${"b".repeat(300)}`);
-  const rendered = context(stateOf(briefing, prompt("p1", "thanks")));
-  const lines = rendered.split("\n");
-  assert.equal(lines.length, 2, "flattened to one line");
-  assert.ok((lines[0]?.length ?? 0) <= 270 && lines[0]?.endsWith("…"));
+/** A briefing of several paragraphs, `n` of its own, ending in a word only its end has. */
+const briefing = (n: number) => reply(`b${n}`, `Morning briefing ${n}: three mails came in.\n\nFirst paragraph ${"a".repeat(300)}\n\nSecond paragraph ${"b".repeat(300)} tail-${n}`);
+/** Four briefings, each followed by a chat long enough to close blocks of 3 000 after it, then a few short replies. */
+const briefed = (): State => stateOf(...[0, 1, 2, 3].flatMap((n) => [briefing(n), ...chatOf(10, 280).map((e) => ({ ...e, id: `${e.id}-${n}` }))]), reply("r-last1", "ok"), reply("r-last2", "sure"), reply("r-last3", "done"));
+
+test("in the chat turn's window an older long briefing is flattened and shortened, in closed blocks before the newest one only", () => {
+  const state = briefed();
+  const chat = context(state, { full: 24_000, brief: 8_000 }, undefined, 3_000, true);
+  const first = chat.split("\n").find((l) => l.includes("Morning briefing 0"));
+  assert.ok(first && first.length <= 270 && first.endsWith("…"), "the oldest briefing is one short line");
+  assert.doesNotMatch(chat, /tail-0/);
+  // the same chat, for a helper or read_chat: whole
+  const whole = context(state, { full: 24_000, brief: 8_000 }, undefined, 3_000);
+  assert.match(whole, /tail-0/);
+  assert.match(whole, /\n\nSecond paragraph/);
+});
+
+test("the latest replies stay whole in the chat turn's window, wherever their block is", () => {
+  const long = (id: string, n: number) => reply(id, `Draft ${n}:\n\nDear Li, ${"p".repeat(600)}\n\nBest, ${"q".repeat(500)} end-${n}`);
+  // three long drafts close blocks of their own; they are the latest replies, so none is shortened
+  const state = stateOf(...chatOf(20, 280), long("d1", 1), prompt("u1", "and another"), long("d2", 2), prompt("u2", "one more"), long("d3", 3), prompt("u3", "make the second paragraph politer"));
+  const chat = context(state, { full: 24_000, brief: 8_000 }, undefined, 1_000, true);
+  for (const n of [1, 2, 3]) assert.match(chat, new RegExp(`end-${n}`), `draft ${n} is whole`);
+});
+
+test("memory_search over chats finds and gives a long reply and a schedule whole", () => {
+  const schedule: Entity = {
+    kind: "schedule",
+    id: "s1",
+    at,
+    title: "Medication",
+    instructions: `Remind me to take ${"the morning pills, ".repeat(20)}and vitamin D last.`,
+    when: { kind: "repeat", cron: "0 8 * * *", timezone: "UTC" },
+    status: "active",
+    running: false,
+    next: null,
+    last: null,
+    needs: null,
+    preset: false,
+    goal: null,
+  };
+  const state = stateOf(briefing(7), schedule, ...chatOf(40, 280));
+  assert.match(recall(state, "tail-7"), /\n\nSecond paragraph .* tail-7/s);
+  assert.match(recall(state, "vitamin D"), /and vitamin D last\./);
 });

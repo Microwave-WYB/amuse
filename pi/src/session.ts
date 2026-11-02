@@ -20,7 +20,6 @@ import {
   type ToolDefinition,
   createAgentSession,
   createCodemodeExtension,
-  createExtensionRuntime,
 } from "@earendil-works/pi-coding-agent";
 import { type Api, type CredentialStore, type Model, type ModelThinkingLevel, clampThinkingLevel } from "@earendil-works/pi-ai";
 import type { ThinkingLevel } from "@amuse/protocol";
@@ -63,23 +62,6 @@ export function parseModel(spec: string): { provider: string; id: string } | und
   const provider = spec.slice(0, slash).trim();
   const id = spec.slice(slash + 1).trim();
   return slash > 0 && provider && id ? { provider, id } : undefined;
-}
-
-/** A resource loader that discovers nothing, so Pi adds no prompts, skills, AGENTS.md or `<cwd>` of its own. */
-function bare(system: string): ResourceLoader {
-  return {
-    getExtensions: () => ({ extensions: [], errors: [], runtime: createExtensionRuntime() }),
-    getSkills: () => ({ skills: [], diagnostics: [] }),
-    getPrompts: () => ({ prompts: [], diagnostics: [] }),
-    getThemes: () => ({ themes: [], diagnostics: [] }),
-    getAgentsFiles: () => ({ agentsFiles: [] }),
-    getSystemPrompt: () => system,
-    getSystemPromptSource: () => undefined,
-    getAppendSystemPrompt: () => [],
-    getAppendSystemPromptSources: () => [],
-    extendResources: () => {},
-    reload: async () => {},
-  };
 }
 
 const runtimes = new Map<string, Promise<ModelRuntime>>();
@@ -134,11 +116,14 @@ const CODEMODE_DESCRIPTION =
   "Run a JavaScript async arrow function `async () => { ... }` that calls multiple tools via `tools.<name>(args)` (each returns a Promise<string>) and returns a result; use only to batch or chain many calls in one step.";
 
 /**
- * Codemode's resources: the system prompt kept byte-for-byte as given (no `<cwd>` tag or extra guidelines), and Pi's
- * codemode tool registered without mutating every other tool's description, nothing discovered from disk.
+ * A session's resources: nothing discovered from disk (no extensions, skills, prompts or AGENTS.md), the system prompt sent
+ * byte for byte as given, and, with `codemode`, Pi's codemode tool, with a short description and without its per-tool
+ * "Codemode: …" notes and guidelines. The prompt is pinned the way Pi supports, a `before_agent_start` handler returning it:
+ * Pi then sends that text as the request's system prompt instead of the one it builds (which adds `<cwd>` with the
+ * session's scratch folder, new every turn, and tool guidelines).
  */
-async function withCodemode(system: string, cwd: string): Promise<ResourceLoader> {
-  const base = createCodemodeExtension({ mode: "on", models: false });
+async function resources(system: string, cwd: string, codemode: boolean): Promise<ResourceLoader> {
+  const codemodeTool = codemode ? createCodemodeExtension({ mode: "on", models: false }) : undefined;
   const loader = new DefaultResourceLoader({
     cwd,
     agentDir: cwd,
@@ -146,7 +131,7 @@ async function withCodemode(system: string, cwd: string): Promise<ResourceLoader
     extensionFactories: [
       (pi) => {
         pi.on("before_agent_start", () => ({ systemPrompt: system }));
-        base({
+        codemodeTool?.({
           ...pi,
           registerTool(tool) {
             const { prepareLoadout: _, promptGuidelines: __, ...rest } = tool;
@@ -225,17 +210,12 @@ export async function sessionOn(
       compaction: { enabled: true },
       retry: { enabled: true, maxRetries: 2 },
     }),
-    resourceLoader: codemode ? await withCodemode(system, cwd) : bare(system),
+    resourceLoader: await resources(system, cwd, codemode),
     noTools: "builtin",
-    tools: [...tools.map((tool) => tool.name), ...(codemode ? ["codemode"] : [])],
+    // codemode first: a tool unlocked mid-turn (skills.ts) is declared in its place in this list, so it must be the last to come
+    tools: [...(codemode ? ["codemode"] : []), ...tools.map((tool) => tool.name)],
     customTools: tools,
   });
-  const internal = session as unknown as {
-    _baseSystemPromptOptions?: { forceSystemPrompt?: string };
-    _baseSystemPrompt?: string;
-  };
-  if (internal._baseSystemPromptOptions) internal._baseSystemPromptOptions.forceSystemPrompt = system;
-  internal._baseSystemPrompt = system;
   if (caching) {
     const { agent } = session;
     const before = agent.onPayload;

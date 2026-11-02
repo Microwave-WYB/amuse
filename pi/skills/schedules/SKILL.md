@@ -11,7 +11,7 @@ description: Work for later or on a schedule (a morning briefing, checking mail 
 
 **Run only when worth it** (`needs`), for upkeep only: `conversation` runs only if there was conversation since its last run; `lull` once a conversation has gone quiet (at most every four hours). A run held back costs nothing. Never give a `needs` to what the user wants at its time (a reminder, a briefing, a look at their mail): it would not run.
 
-**Change or cancel.** To change one, cancel it (`cancel_schedule`) and set up the new one. The user can also pause, resume or delete schedules in Settings › Schedules.
+**Change or cancel.** To change one, read its full instructions first (`list_schedules` with its `id`), then cancel it (`cancel_schedule`) and set up the new one with all of them, changed only where the user asked. The user can also pause, resume or delete schedules in Settings › Schedules.
 
 **Built in.** Amuse starts with a few schedules that keep its memory and skills: Memory and People and groups (hourly, after conversation), Reflection, Goals and Skill review (nightly) and Wrap-up (after a conversation goes quiet). They are the user's like any other.
 

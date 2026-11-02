@@ -117,5 +117,12 @@ test("memoryBrief puts Preferences and Commitments first so a long Facts section
   assert.ok(at("## Preferences") > 0 && at("Keep replies short and direct") > at("## Preferences"));
   assert.ok(at("## Commitments") > at("## Preferences") && at("Send the camera roll by Sunday") > at("## Commitments"));
   assert.ok(at("## Facts") > at("## Commitments"), "Preferences and Commitments come before Facts");
-  assert.match(brief, /… \(cut; read the rest with memory_get\)/);
+  // Facts keeps its newest lines, whole, and says how many older ones are left out, with a tool the turn has
+  assert.match(brief, /\(\d+ older lines not shown; memory_search finds them\)/);
+  assert.match(brief, /Fact 59 x+ \(m-[^)]+\)/, "the newest fact is there");
+  assert.doesNotMatch(brief, /Fact 0 x/, "the oldest is what goes");
+  assert.doesNotMatch(brief, /memory_get/, "no tool the turn does not declare");
+  const facts = brief.slice(brief.indexOf("## Facts"));
+  for (const line of facts.split("\n").slice(2)) if (line.trim()) assert.match(line, /^- Fact \d+ x+ \(m-[^)]+\)$|^## /, `a whole line: ${line.slice(0, 40)}`);
+  assert.match(brief, /What is true now about the user\. Each line ends with its id/, "MEMORY.md's own words on its ids stay");
 });

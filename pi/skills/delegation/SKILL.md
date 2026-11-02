@@ -1,6 +1,6 @@
 ---
 name: delegation
-description: Handing work off to background helpers (`start_task`, `browse`) and following it up; unlocks `message_run`, `answer_question`, `stop_run` and `read_browser`.
+description: Handing work off to background helpers (`start_task`, `browse`) and following it up (`message_run`, `answer_question`, `stop_run`); unlocks `list_chats` and `read_chat`.
 ---
 
 # Handing work off

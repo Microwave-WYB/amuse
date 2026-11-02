@@ -82,7 +82,7 @@ const room = (context: string, now = noon, main = true, live = "") => ({
 test("a turn's message tells what holds still first and what is new last: the conversation, then where, memory, language, now and the newest user message", async () => {
   const { brief } = await import("./agent.ts");
   const conversation = Array.from({ length: 80 }, (_, i) => `[2026-10-21 08:00] User: line ${i} ${"x".repeat(200)}`).join("\n");
-  const told = brief(room(conversation, noon, false), { kind: "message", text: "hi", attachments: [], quote: null }, "Your memory of the user: likes tea", false, "Chinese", "");
+  const told = brief(room(conversation, noon, false), { kind: "message", text: "hi", attachments: [], quote: null }, "Your memory of the user: likes tea", [], "Chinese", "");
   const at = (part: string) => told.text.indexOf(part);
   const volatile = ["You are in a side chat", "Your memory of the user: likes tea", "The user writes in Chinese: reply in Chinese.", "Now: ", "Reply to the user's newest message:\nhi"];
   assert.ok(at(conversation) > 0 && at("The conversation so far") === 0, "the heading, then the conversation");
@@ -99,17 +99,38 @@ test("the message of the next turn begins with the message of this one up to whe
   const { brief } = await import("./agent.ts");
   const lines = Array.from({ length: 80 }, (_, i) => `[2026-10-21 08:00] User: line ${i} ${"x".repeat(200)}`);
   const message: Turn = { kind: "message", text: "hi", attachments: [], quote: null };
-  const first = brief(room(lines.slice(0, 60).join("\n")), message, "memory one", false, null, "");
-  const second = brief(room(lines.join("\n"), "2026-10-21T13:00:00Z"), message, "memory two, rewritten", false, "Japanese", "");
+  const first = brief(room(lines.slice(0, 60).join("\n")), message, "memory one", [], null, "");
+  const second = brief(room(lines.join("\n"), "2026-10-21T13:00:00Z"), message, "memory two, rewritten", [], "Japanese", "");
   assert.ok(first.stable.length > 0);
   assert.deepEqual(second.stable.slice(0, first.stable.length), first.stable, "the parts that were closed are the same, the next turn too");
   assert.ok(second.text.startsWith(first.stable.join("")), "what the provider cached is what this one begins with");
 });
 
-test("a note turn is briefed the same way, and says a user's newer message is above", async () => {
+test("a note turn is briefed the same way; when the user wrote too, their newest message comes after the note, last", async () => {
   const { brief } = await import("./agent.ts");
-  const told = brief(room("[2026-10-21 08:00] User: hi"), { kind: "note", text: "[task t-1 done] ok" }, "", true, null, "");
-  assert.match(told.text, /\n---\nYou are in the main chat\.\n\nNow: .*\.\nA note from your background work.*reply to them too\.\n\[task t-1 done\] ok$/s);
+  const quiet = brief(room("[2026-10-21 08:00] User: hi"), { kind: "note", text: "[task t-1 done] ok" }, "", [], null, "");
+  assert.match(quiet.text, /\n---\nYou are in the main chat\.\n\nNow: .*\.\nA note from your background work.*call no_reply.*\n\[task t-1 done\] ok$/s);
+  const wrote = brief(room("[2026-10-21 08:00] User: hi"), { kind: "note", text: "[task t-1 done] ok" }, "", [{ kind: "message", text: "is it done?", attachments: [], quote: null, suggested: true }], null, "");
+  assert.match(wrote.text, /A note from your background work \(not from the user\), and the user has also written since\..*\n\[task t-1 done\] ok\n\nThe user's newest message:\n\(they tapped one of your suggested replies\)\nis it done\?$/s);
+  assert.doesNotMatch(wrote.text, /last lines above/);
+});
+
+test("the user's messages a turn answers are given together, last, with what they reply to and their files", async () => {
+  const { brief } = await import("./agent.ts");
+  const quote = { id: "r1", kind: "reply" as const, text: "Shall I book it?", state: null };
+  const file = { id: "f-1", name: "a.png", type: "image/png", size: 1024, path: "user/a.png" };
+  const told = brief(
+    room("[2026-10-21 08:00] User: hi"),
+    { kind: "message", text: "second", attachments: [], quote: null },
+    "",
+    [
+      { kind: "message", text: "first", attachments: [file], quote: null },
+      { kind: "message", text: "second", attachments: [], quote },
+    ],
+    null,
+    "",
+  );
+  assert.match(told.text, /Reply to the user's newest message:\n\(replying to your message "Shall I book it\?"\)\nfirst\nsecond\nAttached: a\.png \(image\/png, 1 KB\) at user\/a\.png$/);
 });
 
 test("a helper is briefed with the conversation first and the work last", async () => {
@@ -123,7 +144,7 @@ test("what is running now is in every turn, after the part the provider caches, 
   const conversation = Array.from({ length: 80 }, (_, i) => `[2026-10-21 08:00] User: line ${i} ${"x".repeat(200)}`).join("\n");
   const live = 'What is running now:\n- browser task "SHAPE training" (b-1): running, now "进入下一节（2.02）" (2 minutes ago)';
   const message: Turn = { kind: "message", text: "在做了吗", attachments: [], quote: null };
-  const told = brief(room(conversation, noon, true, live), message, "Your memory of the user: likes tea", false, null, '[browser task "SHAPE training" (b-1): the user handed it back; it is carrying on]');
+  const told = brief(room(conversation, noon, true, live), message, "Your memory of the user: likes tea", [], null, '[browser task "SHAPE training" (b-1): the user handed it back; it is carrying on]');
   const stable = told.stable.join("");
   assert.ok(stable.length > 0 && told.text.startsWith(stable), "the heading and the conversation hold still");
   assert.ok(told.text.indexOf("What is running now") > stable.length, "the live state sits after the cached prefix, so it never breaks the cache");
@@ -133,7 +154,7 @@ test("what is running now is in every turn, after the part the provider caches, 
     /\n---\nYou are in the main chat\.\n\nWhat is running now:\n- browser task "SHAPE training" \(b-1\): running, now "进入下一节（2\.02）" \(2 minutes ago\)\n\nSince your last turn:\n\[browser task "SHAPE training" \(b-1\): the user handed it back; it is carrying on\]\n\nYour memory of the user: likes tea\n\nNow: .*\nReply to the user's newest message:\n在做了吗$/s,
   );
   // a turn with nothing running and nothing kept reads as it did before
-  const quiet = brief(room(conversation), message, "", false, null, "");
+  const quiet = brief(room(conversation), message, "", [], null, "");
   assert.doesNotMatch(quiet.text, /What is running now|Since your last turn/);
   assert.match(quiet.text, /\n---\nYou are in the main chat\.\n\nNow: /);
 });
@@ -206,7 +227,7 @@ test("a chat turn declares only the core tools initially and unlocks a skill's t
         return fauxAssistantMessage("done");
       },
     ],
-    { files: noWorkspace, skills: builtInSkills() },
+    { files: noWorkspace, skills: builtInSkills(), codemode: true },
   );
   agent.prompt({ kind: "message", text: "set a reminder", attachments: [], quote: null }, io);
   await until(1);
@@ -216,6 +237,8 @@ test("a chat turn declares only the core tools initially and unlocks a skill's t
   assert.ok(initial.includes("use_skill") && initial.includes("memory_search") && initial.includes("remember"));
   assert.ok(!initial.includes("schedule") && !initial.includes("list_schedules") && !initial.includes("write_file"), "skill-gated tools are hidden before use_skill");
   assert.ok(afterSkill.includes("schedule") && afterSkill.includes("list_schedules") && afterSkill.includes("cancel_schedule"), "schedules tools are declared after use_skill('schedules')");
+  assert.deepEqual(afterSkill.slice(0, initial.length), initial, "the tools the turn began with keep their place");
+  assert.deepEqual(afterSkill.slice(initial.length), ["schedule", "list_schedules", "cancel_schedule"], "and the unlocked ones come after them");
 });
 
 test("the session marks the request's cache where the turn's message holds still, reading it as each request is made", async () => {
@@ -241,4 +264,53 @@ test("the session marks the request's cache where the turn's message holds still
   assert.ok(content.length >= 2 && content[0].cache_control !== undefined, "a mark inside the message, apart from its end");
   assert.deepEqual(content.at(-1).cache_control, mark, "and the one at its end stays");
   assert.equal(content.map((b: { text: string }) => b.text).join(""), text);
+});
+
+test("the chat turn's own window is asked for: older long replies may be shortened there, never in a helper's context", async () => {
+  const { brief } = await import("./agent.ts");
+  const asked: (string | undefined)[] = [];
+  const told = brief({ ...room(""), context: (view?: "chat") => (asked.push(view), view === "chat" ? "the chat window" : "the whole chat") }, { kind: "message", text: "hi", attachments: [], quote: null }, "", [], null, "");
+  assert.deepEqual(asked, ["chat"]);
+  assert.match(told.text, /the chat window/);
+});
+
+test("the tools a chat turn starts with: the core ones and the controls of running work, with every other tool behind a skill", async () => {
+  const { agentTools } = await import("./agent.ts");
+  const { memoryRules, noWorkspace } = await import("@amuse/core");
+  const { builtInSkills, GATED_TOOLS } = await import("./skills.ts");
+  const stub = new Proxy({}, { get: () => async () => ({}) }) as never;
+  const cfg: PiConfig = { model: () => null, auth: { kind: "environment" }, system: "s", rules: memoryRules(), files: noWorkspace, apps: stub, skills: builtInSkills(), about: async () => "", search: async () => [], sandbox: stub, browsers: stub, secrets: stub };
+  const io = () => {
+    throw new Error("not used to build tools");
+  };
+  const names = agentTools(cfg, io, () => false, () => {}, () => {}).map((t) => t.name);
+  assert.deepEqual(
+    names.filter((n) => !GATED_TOOLS.has(n)),
+    ["current_time", "browse", "read_browser", "memory_search", "remember", "use_skill", "start_task", "message_run", "answer_question", "stop_run", "web_search", "web_read", "job_output", "stop_job", "say", "no_reply", "suggest_replies"],
+  );
+});
+
+test("with codemode, as in production, the system prompt and the tools a turn starts with are the same bytes whether or not something runs", async () => {
+  const { fauxAssistantMessage, getCurrentSystemPrompt, getCurrentTools } = await import("@earendil-works/pi-ai");
+  const { noWorkspace } = await import("@amuse/core");
+  const { builtInSkills } = await import("./skills.ts");
+  const { chat } = await import("./scripted-chat.ts");
+  const seen: { system: string; tools: string }[] = [];
+  const record = (context: { messages: Parameters<typeof getCurrentTools>[0] }) => {
+    seen.push({ system: getCurrentSystemPrompt(context.messages), tools: JSON.stringify(getCurrentTools(context.messages)) });
+    return fauxAssistantMessage("ok");
+  };
+  const message: Turn = { kind: "message", text: "hello", attachments: [], quote: null };
+  for (const live of ["", 'What is running now:\n- browser task "Book" (b-1): running, now "Paying" (1 minute ago)']) {
+    const { agent, io, until } = await chat([record, record], { codemode: true, files: noWorkspace, skills: builtInSkills(), live });
+    agent.prompt(message, io);
+    await until(1);
+    agent.prompt(message, io);
+    await until(2);
+  }
+  assert.equal(seen.length, 4);
+  assert.ok(seen[0]!.system.length > 0 && !/<cwd>/.test(seen[0]!.system));
+  assert.ok(seen[0]!.tools.includes('"name":"codemode"') && seen[0]!.tools.includes('"name":"stop_run"'));
+  assert.doesNotMatch(seen[0]!.tools, /Codemode: tools\./, "no per-tool codemode notes");
+  for (const s of seen) assert.deepEqual(s, seen[0], "idle or running, first turn or next");
 });

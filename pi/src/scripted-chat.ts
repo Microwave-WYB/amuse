@@ -15,7 +15,7 @@ import type { Skill } from "./skills.ts";
  */
 export async function chat(
   responses: FauxResponseStep[],
-  { tools = [], opened, files, schedules = [], live = "", skills }: { tools?: ToolDefinition[]; opened?: (session: AgentSession) => void; files?: Workspace; schedules?: Schedule[]; live?: string; skills?: Skill[] } = {},
+  { tools = [], opened, files, schedules = [], live = "", skills, codemode = false }: { tools?: ToolDefinition[]; opened?: (session: AgentSession) => void; files?: Workspace; schedules?: Schedule[]; live?: string; skills?: Skill[]; codemode?: boolean } = {},
 ) {
   const models = await ModelRuntime.create({ authPath: join(mkdtempSync(join(tmpdir(), "amuse-auth-")), "auth.json"), modelsPath: null, refreshOnCreate: false });
   const faux = fauxProvider({ provider: "faux", models: [{ id: "scripted" }] });
@@ -59,7 +59,7 @@ export async function chat(
     ...(skills ? { skills } : {}),
     rules: memoryRules(),
     open: async (system, own, caching) => {
-      const made = await sessionOn(models, faux.getModel(), system, [...own, ...tools], { caching });
+      const made = await sessionOn(models, faux.getModel(), system, [...own, ...tools], { caching, codemode });
       opened?.(made.session);
       return made;
     },
