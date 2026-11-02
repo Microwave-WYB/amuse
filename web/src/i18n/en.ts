@@ -522,6 +522,8 @@ export const en = {
       waiting_for_agents: "Waiting for agents",
     },
     needsApproval: "Needs approval",
+    /** the link to the server is down or being checked (the app came back from the background, the network changed) */
+    connecting: "Connecting…",
   },
   cards: {
     openTask: "Open task details",
