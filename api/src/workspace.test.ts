@@ -9,7 +9,7 @@ import { demoPorts } from "@amuse/demo";
 import { Attachment } from "@amuse/protocol";
 import { WorkspaceError } from "@amuse/core";
 import { worded } from "./descend.ts";
-import { MAX_FILE, workspace } from "./workspace.ts";
+import { MAX_FILE, disposition, servedType, workspace } from "./workspace.ts";
 import { memorySent } from "./sent.ts";
 import { letIn, noPin } from "./testing.ts";
 import { listen } from "./server.ts";
@@ -85,6 +85,15 @@ test("a file is uploaded, kept with what it is (mode 600), and served back: imag
     const html = await get(page.id);
     assert.equal(html.headers.get("content-type"), "application/octet-stream");
     assert.match(html.headers.get("content-disposition") ?? "", /^attachment/);
+
+    // anything else downloads under its own name and kind, so a phone saves it as report (1).pdf, not f-<id>.bin
+    const report = Attachment.parse(await (await upload("报告 (1).pdf", "application/pdf", "%PDF")).json());
+    const pdf = await get(report.id);
+    assert.equal(pdf.headers.get("content-type"), "application/pdf");
+    assert.equal(
+      pdf.headers.get("content-disposition"),
+      `attachment; filename="__ (1).pdf"; filename*=UTF-8''%E6%8A%A5%E5%91%8A%20%281%29.pdf`,
+    );
 
     // a video seeks by ranges
     const part = await get(cat.id, { range: "bytes=2-3" });
@@ -381,4 +390,25 @@ test("what goes wrong in the walk is said in words about the path, never in path
   }
   await files.write("plain.md", text("p"), false);
   await assert.rejects(files.write("plain.md/inside.md", text("x"), false), /plain\.md is not a folder/);
+});
+
+test("a file's name goes out as RFC 5987 filename* with a plain-ASCII filename beside it", () => {
+  assert.equal(disposition("attachment", "notes.txt"), `attachment; filename="notes.txt"; filename*=UTF-8''notes.txt`);
+  assert.equal(disposition("inline", "猫.png"), `inline; filename="_.png"; filename*=UTF-8''%E7%8C%AB.png`);
+  // the characters encodeURIComponent keeps but RFC 5987 does not, and the ones a quoted string cannot hold
+  assert.equal(
+    disposition("attachment", `it's (a) *"x"\\.zip`),
+    `attachment; filename="it's (a) *_x__.zip"; filename*=UTF-8''it%27s%20%28a%29%20%2A%22x%22%5C.zip`,
+  );
+  const header = disposition("attachment", "Ünïcödé ✓.docx");
+  const encoded = /filename\*=UTF-8''(.+)$/.exec(header)?.[1] ?? "";
+  assert.equal(decodeURIComponent(encoded), "Ünïcödé ✓.docx");
+});
+
+test("a file is served as its own kind, unless a browser could run it", () => {
+  assert.equal(servedType("application/pdf"), "application/pdf");
+  assert.equal(servedType("application/vnd.openxmlformats-officedocument.wordprocessingml.document"), "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
+  for (const active of ["text/html", "application/xhtml+xml", "image/svg+xml", "application/xml", "text/javascript", ""])
+    assert.equal(servedType(active), "application/octet-stream", active);
+  assert.equal(servedType("text/plain\r\nx: y"), "application/octet-stream");
 });

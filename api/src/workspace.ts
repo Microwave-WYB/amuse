@@ -40,6 +40,26 @@ export const typeOf = (name: string) => kinds[extname(name).slice(1).toLowerCase
 /** Kinds shown in the page itself (an <img> or a <video>); every other file is only downloaded. */
 export const shownInline = (type: string) => /^image\/(png|jpeg|gif|webp|avif)$/.test(type) || /^video\/(mp4|webm|quicktime|ogg)$/.test(type);
 
+/**
+ * The Content-Type a file is served with: its own kind, so a device saving it knows what it is, except kinds a
+ * browser could run (a page, SVG, XML, a script), which stay opaque bytes.
+ */
+export function servedType(type: string): string {
+  const valid = /^[a-z0-9][a-z0-9!#$&^_.+-]*\/[a-z0-9][a-z0-9!#$&^_.+-]*$/i.test(type);
+  const active = /\/(html|xml)$|\+xml$|script|xsl/i.test(type);
+  return valid && !active ? type : "application/octet-stream";
+}
+
+/**
+ * Content-Disposition for a file: `filename` as a plain-ASCII stand-in for clients that read only that, and the
+ * real name as RFC 5987 `filename*` (UTF-8, percent-encoded, which encodeURIComponent leaves `'()*` out of).
+ */
+export function disposition(kind: "inline" | "attachment", name: string): string {
+  const ascii = name.replace(/[^\x20-\x7e]/g, "_").replace(/["\\]/g, "_");
+  const encoded = encodeURIComponent(name).replace(/['()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`);
+  return `${kind}; filename="${ascii}"; filename*=UTF-8''${encoded}`;
+}
+
 /** A name the user's device gave, as a file name of its own: no folders, no control characters. */
 function cleanName(name: string): string {
   const base = basename(name.replaceAll("\\", "/")).replace(/[\u0000-\u001f\u007f]/g, "").trim();

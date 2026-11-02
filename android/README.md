@@ -53,8 +53,13 @@ state; chats remain on the server. Android backup is disabled.
   inaccessible native cover while choosing files; with device lock enabled,
   selected files are not returned to the page until local unlock succeeds.
 - Downloads from the configured origin are saved with MediaStore in
-  **Downloads/Amuse**. Every redirect is checked before a cookie is sent; an
-  off-origin redirect fails. Failed partial downloads are removed.
+  **Downloads/Amuse**, under the name and type the server gives (its RFC 5987
+  `filename*`). Every redirect is checked before a cookie is sent; an
+  off-origin redirect fails. Failed partial downloads are removed. A sent
+  file's card in the chat shows the progress, a failure with its reason and a
+  retry button, and once saved, a tap opens the copy in an app that takes it.
+  The app reports to the page with `amuse-download` events; the page calls no
+  native code, only the download link.
 - The web UI's voice button can request the microphone. The app first asks for
   explicit confirmation for the configured origin, then asks Android for
   `RECORD_AUDIO` if needed. It grants only an audio-only request after checking

@@ -25,7 +25,7 @@ import { z } from "zod";
 import type { Call } from "@amuse/protocol";
 import { type Access, PasswordRejected, type Seen } from "./access.ts";
 import { type Pin, PinRejected, PinRequired, type Tried, type Unlocks, LENGTHS, wellFormed } from "./pin.ts";
-import { type FileStore, shownInline } from "./workspace.ts";
+import { type FileStore, disposition, servedType, shownInline } from "./workspace.ts";
 import { type Live, attach, thumbnail } from "./live.ts";
 import { serve } from "./rpc.ts";
 import { TERMINAL_CLOSED, attachTerminal } from "./terminal.ts";
@@ -457,8 +457,8 @@ export function listen({ session, live, terminal, files: uploads, web, returned,
     const { attachment, size, handle } = found;
     const inline = shownInline(attachment.type);
     const headers = {
-      "content-type": inline ? attachment.type : "application/octet-stream",
-      "content-disposition": `${inline ? "inline" : "attachment"}; filename*=UTF-8''${encodeURIComponent(attachment.name)}`,
+      "content-type": inline ? attachment.type : servedType(attachment.type),
+      "content-disposition": disposition(inline ? "inline" : "attachment", attachment.name),
       "x-content-type-options": "nosniff",
       "content-security-policy": "sandbox; default-src 'none'",
       "cache-control": "private, max-age=31536000, immutable",
