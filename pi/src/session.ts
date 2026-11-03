@@ -29,9 +29,10 @@ import { type KeyFile, environmentCredentials, readOnlyCredentials } from "./cre
 /**
  * Where the model's credentials come from: the user's keys (set up in the app),
  * a Pi auth file (per provider), or the environment, where Pi reads each
- * provider's standard variable.
+ * provider's standard variable. With the keys come where their providers'
+ * catalogs are kept between restarts.
  */
-export type PiAuth = { kind: "keys"; keys: KeyFile } | { kind: "file"; path: string } | { kind: "environment" };
+export type PiAuth = { kind: "keys"; keys: KeyFile; modelsPath?: string; modelsStorePath?: string } | { kind: "file"; path: string } | { kind: "environment" };
 
 /** No model is chosen (or its provider has no key): said to the user as it is. */
 export class NoModel extends Error {}
@@ -65,25 +66,42 @@ export function parseModel(spec: string): { provider: string; id: string } | und
 }
 
 const runtimes = new Map<string, Promise<ModelRuntime>>();
-const keyRuntimes = new WeakMap<KeyFile, Promise<ModelRuntime>>();
+/** The keys' runtime by where its catalogs are kept (one per set of paths: the keys are one store). */
+const keyRuntimes = new WeakMap<KeyFile, Map<string, Promise<ModelRuntime>>>();
 
-/** The model runtime for `cfg`'s credentials (made once; a failed setup is retried next time). */
+/**
+ * The model runtime for `cfg`'s credentials (made once; a failed setup is retried next time). The providers' catalogs
+ * are read from their store here, never fetched: the network is Settings › Models' to ask for (keys.refresh).
+ */
 export function runtime(cfg: Pick<PiModelConfig, "auth" | "modelsPath">): Promise<ModelRuntime> {
   const { auth } = cfg;
+  // the keys' catalogs are kept where their keys are (PiAuth); any other source has none of its own
+  const modelsPath = auth.kind === "keys" ? auth.modelsPath : cfg.modelsPath;
+  const modelsStorePath = auth.kind === "keys" ? auth.modelsStorePath : undefined;
   const create = (credentials: CredentialStore) =>
     ModelRuntime.create({
       credentials,
-      modelsPath: cfg.modelsPath ?? null,
-      refreshOnCreate: false,
+      // Pi keeps a file store only beside a models.json: without one, the catalog stays in memory (a restart is back to the bundled list)
+      modelsPath: modelsPath ?? null,
+      ...(modelsStorePath ? { modelsStorePath } : {}),
+      // what a past refresh learned is read here; fetching over the network is Settings › Models' to ask for (keys.refresh)
+      refreshOnCreate: true,
+      allowModelNetwork: false,
     });
   if (auth.kind === "keys") {
-    let made = keyRuntimes.get(auth.keys);
-    if (!made) {
-      made = create(auth.keys);
-      made.catch(() => keyRuntimes.delete(auth.keys));
-      keyRuntimes.set(auth.keys, made);
+    const kept = `${modelsPath ?? ""}\0${modelsStorePath ?? ""}`;
+    const made = keyRuntimes.get(auth.keys) ?? new Map<string, Promise<ModelRuntime>>();
+    keyRuntimes.set(auth.keys, made);
+    let found = made.get(kept);
+    if (!found) {
+      found = create(auth.keys);
+      found.catch(() => {
+        made.delete(kept);
+        if (made.size === 0) keyRuntimes.delete(auth.keys);
+      });
+      made.set(kept, found);
     }
-    return made;
+    return found;
   }
   const key = `${auth.kind === "file" ? `file:${auth.path}` : "environment"}\0${cfg.modelsPath ?? ""}`;
   let made = runtimes.get(key);

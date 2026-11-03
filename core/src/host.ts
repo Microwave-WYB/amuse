@@ -390,6 +390,8 @@ export interface AppDirectory {
 /** Where the user's keys are set up and the models chosen: a sign-in goes step by step. */
 export interface Keys {
   list(): Promise<Results["keys.list"]>;
+  /** The same list, once the providers' own catalogs have been fetched (a model added since this version shows up); one that cannot be fetched keeps its models. */
+  refresh(): Promise<Results["keys.refresh"]>;
   login(provider: string, way?: KeyWay): Promise<LoginStep>;
   answer(login: string, value: string): Promise<LoginStep>;
   /** The sign-in's next step, or after a while the step as it stands. */
@@ -412,6 +414,7 @@ export interface Keys {
 /** No keys: where none are kept (the demo, tests); the demo's agent needs none. */
 export const noKeys: Keys = {
   list: async () => ({ providers: [], models: [], chat: null, browser: null, background: null, thinking: { chat: "off", browser: "off", background: "off" }, voice: { services: [], chosen: null, local: null } }),
+  refresh: () => noKeys.list(),
   login: async () => ({ kind: "failed", reason: "No keys are kept here." }),
   answer: async () => ({ kind: "failed", reason: "No keys are kept here." }),
   wait: async () => ({ kind: "failed", reason: "No keys are kept here." }),
@@ -1097,6 +1100,7 @@ export function createHost(ports: Ports, options: HostOptions = {}): Session {
       return null;
     },
     "keys.list": () => ports.keys.list(),
+    "keys.refresh": () => ports.keys.refresh(),
     "keys.login": ({ provider, way }) => ports.keys.login(provider, way),
     "keys.answer": ({ login, value }) => ports.keys.answer(login, value),
     "keys.wait": ({ login }) => ports.keys.wait(login),

@@ -51,7 +51,21 @@ export function Models({
       ),
     [session],
   );
-  useEffect(() => void load(), [load]);
+  /** The same list once the providers' own catalogs have been fetched over the network (a model added since this version shows up when it is in). */
+  const refresh = useCallback(
+    () =>
+      session.call("keys.refresh", {}).then(
+        (s) => setState(s),
+        // a fetch that cannot be done leaves the list as it is: nothing for the user to do about it
+        () => {},
+      ),
+    [session],
+  );
+  /** Opening the page: the list as it is at once, then the providers asked. */
+  useEffect(() => {
+    void load();
+    void refresh();
+  }, [load, refresh]);
   /** a change that did not go through is a toast (the page itself is fine); `error` is only for a page that could not load */
   const failed = useFail();
   const choose = (role: ModelRole, model: string | null) => {
