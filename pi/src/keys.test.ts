@@ -3,8 +3,10 @@ import { mkdtempSync, readFileSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
+import { type Provider, createFauxCore, createProvider } from "@earendil-works/pi-ai";
 import { fileCredentials } from "./credentials.ts";
 import { type Choice, type PiKeys, bare, memoryChoices, piKeys, plainly } from "./keys.ts";
+import { runtime } from "./session.ts";
 import { transcriber } from "./voice.ts";
 
 const composio = {
@@ -337,4 +339,84 @@ test("speech goes to the user's own server at its transcriptions endpoint, with 
     { url: "http://host.docker.internal:8000/v1/audio/transcriptions", auth: null },
     { url: "http://host.docker.internal:8000/v1/audio/transcriptions", auth: "Bearer local_secret" },
   ]);
+});
+
+/**
+ * A provider whose catalogue is fetched over the network, as Pi's own are: `listed` says what it offers now, and
+ * throwing there is a fetch that cannot be done (a key or sign-in the provider no longer takes, a network that is out).
+ * What this version ships with stays in its list, as Pi's does.
+ */
+function catalogued(id: string, listed: () => string[]): { provider: Provider; fetches: () => number } {
+  const core = createFauxCore({ provider: id, models: [{ id: "bundled" }] });
+  const model = (modelId: string) => ({ ...core.models[0], id: modelId, name: `${id} ${modelId}` });
+  let fetches = 0;
+  const provider = createProvider({
+    id,
+    name: id,
+    auth: { apiKey: { name: id, resolve: async () => ({ auth: {} }) } },
+    models: [model("bundled")],
+    api: { stream: core.stream, streamSimple: core.streamSimple },
+    fetchModels: async () => {
+      fetches++;
+      return listed().map(model);
+    },
+  });
+  return { provider, fetches: () => fetches };
+}
+
+test("Settings › Models fetches the providers' own catalogs when it opens: a model added since this version shows up, one that cannot be fetched keeps its own, and what was learned is kept for the next start", async (t) => {
+  // the clock is ours, so the minute between two opens passes within the test
+  const started = Date.now();
+  t.mock.timers.enable({ apis: ["Date"] });
+  t.mock.timers.setTime(started);
+  const dir = mkdtempSync(join(tmpdir(), "amuse-keys-"));
+  const store = fileCredentials(join(dir, "keys.json"));
+  // a catalog is fetched for a provider that has a key: both are set up, and one of them cannot be reached
+  for (const id of ["changing", "unreachable"]) await store.modify(id, async () => ({ type: "api_key", key: `${id}_key` }));
+  /** where Pi keeps what it learns of the providers: beside the keys (the server has it under its data folder) */
+  const catalogs = { modelsPath: join(dir, "pi", "models.json"), modelsStorePath: join(dir, "pi", "models-store.json") };
+  const keys = piKeys({ keys: store, choices: memoryChoices(), ...catalogs });
+  const models = await runtime({ auth: { kind: "keys", keys: store, ...catalogs } });
+  let offered = ["glm-5.3"];
+  const changing = catalogued("changing", () => offered);
+  const unreachable = catalogued("unreachable", () => {
+    throw new Error("401 Unauthorized: the sign-in has expired");
+  });
+  models.registerNativeProvider(changing.provider);
+  models.registerNativeProvider(unreachable.provider);
+  const listed = async () => (await keys.list()).models.filter((m) => m.provider === "changing" || m.provider === "unreachable").map((m) => m.id);
+
+  // as this version ships them
+  assert.deepEqual(await listed(), ["changing/bundled", "unreachable/bundled"]);
+
+  // the page opens: the providers' own lists come, and the one that cannot be fetched keeps what it had
+  offered = ["glm-5.3", "glm-5.4"];
+  const refreshed = await keys.refresh();
+  assert.deepEqual(refreshed.models.filter((m) => m.provider === "changing").map((m) => m.id), ["changing/bundled", "changing/glm-5.3", "changing/glm-5.4"]);
+  assert.deepEqual(refreshed.models.filter((m) => m.provider === "unreachable").map((m) => m.id), ["unreachable/bundled"], "a provider that cannot be fetched keeps its models");
+
+  // a model chosen from what a refresh brought stays chosen once a later one drops it
+  await keys.choose("chat", "changing/glm-5.4");
+  const fetchedOnce = changing.fetches();
+  await keys.refresh();
+  assert.equal(changing.fetches(), fetchedOnce, "opening again within the minute fetches nothing");
+  assert.deepEqual(await listed(), ["changing/bundled", "changing/glm-5.3", "changing/glm-5.4", "unreachable/bundled"]);
+
+  // a minute later, two opens at once share one fetch
+  t.mock.timers.setTime(Date.now() + 61_000);
+  offered = ["glm-5.3"];
+  await Promise.all([keys.refresh(), keys.refresh()]);
+  assert.equal(changing.fetches(), fetchedOnce + 1);
+  assert.deepEqual(await listed(), ["changing/bundled", "changing/glm-5.3", "unreachable/bundled"]);
+  assert.equal((await keys.list()).chat, "changing/glm-5.4", "a model a refresh dropped stays chosen");
+
+  // the same keys and paths on a fresh runtime, as a restart is: the catalog it learned is in the store, and nothing is fetched
+  const restarted = fileCredentials(join(dir, "keys.json"));
+  const restartedRuntime = await runtime({ auth: { kind: "keys", keys: restarted, ...catalogs } });
+  const again = catalogued("changing", () => offered);
+  restartedRuntime.registerNativeProvider(again.provider);
+  await restartedRuntime.refresh({ allowNetwork: false });
+  const after = piKeys({ keys: restarted, choices: memoryChoices(), ...catalogs });
+  assert.deepEqual((await after.list()).models.filter((m) => m.provider === "changing").map((m) => m.id), ["changing/bundled", "changing/glm-5.3"]);
+  assert.equal(again.fetches(), 0, "nothing is fetched at start");
 });

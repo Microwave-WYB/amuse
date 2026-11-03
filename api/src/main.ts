@@ -128,9 +128,16 @@ const adopted = newVault
     })
   : [];
 if (adopted.length > 0) console.log(`Keys taken over from the environment: ${adopted.join(", ")}. Set them in the app from now on.`);
+/**
+ * Where Pi keeps the providers' catalogs it learns, beside the rest of the data: its models.json (which Amuse leaves
+ * empty) and the store a refresh writes next to it. Settings › Models fetches them; a restart finds them here.
+ */
+const piCatalogs = { modelsPath: join(dataDir, "pi", "models.json"), modelsStorePath: join(dataDir, "pi", "models-store.json") };
+
 const keys = piKeys({
   keys: credentials,
   choices,
+  ...piCatalogs,
   apps: [
     {
       id: "composio",
@@ -144,7 +151,7 @@ const keys = piKeys({
     },
   ],
 });
-const auth: PiAuth = { kind: "keys", keys: credentials };
+const auth: PiAuth = { kind: "keys", keys: credentials, ...piCatalogs };
 /** what the sandbox says to the agents comes back with the secrets that are in it masked (the Vault knows which) */
 const sandbox = sandboxDirect && masking(sandboxDirect, () => vault.masked());
 const model = () => keys.model("chat");

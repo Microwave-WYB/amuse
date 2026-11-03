@@ -18,7 +18,7 @@
 import { randomUUID } from "node:crypto";
 import { type AuthEvent, type AuthInteraction, type AuthPrompt, clampThinkingLevel, getSupportedThinkingLevels } from "@earendil-works/pi-ai";
 import { type Keys, Rejected, hintOf, newId } from "@amuse/core";
-import { type DeviceCode, type KeyGuide, type KeyProvider, type KeyTest, type KeyWay, type LoginNote, type LoginPrompt, type LoginStep, type ModelOption, type ModelRole, ThinkingLevel } from "@amuse/protocol";
+import { type DeviceCode, type KeyGuide, type KeyProvider, type KeyTest, type KeyWay, type KeysState, type LoginNote, type LoginPrompt, type LoginStep, type ModelOption, type ModelRole, ThinkingLevel } from "@amuse/protocol";
 import { z } from "zod";
 import { type KeyFile, LOCAL_VOICE, readOnlyCredentials } from "./credentials.ts";
 import { guides } from "./guides.ts";
@@ -115,6 +115,8 @@ const LOGIN_TIMEOUT_MS = 10 * 60_000;
 const WAIT_MS = 20_000;
 /** How long a sign-in that is over still tells keys.wait how it ended. */
 const ENDED_KEPT_MS = 60_000;
+/** How long a fetch of the providers' catalogs is good for: opening Settings › Models again within it fetches nothing. */
+const REFRESH_KEPT_MS = 60_000;
 /** What the app introduces itself as to a provider's sign-in. */
 const AGENT_NAME = "Amuse";
 /**
@@ -224,12 +226,27 @@ interface Flow {
 
 /**
  * `keys` holds the keys; `choices` the models chosen; `apps` the keys that
- * are not a model provider's.
+ * are not a model provider's. `modelsPath` and `modelsStorePath` are where Pi
+ * keeps the providers' catalogs between restarts (PiAuth): under the data
+ * folder, so a model learned by a refresh is still there after a restart.
  */
-export function piKeys({ keys, choices, apps = [], modelsPath, http = fetch }: { keys: KeyFile; choices: Choices; apps?: AppKey[]; modelsPath?: string; http?: typeof fetch }): PiKeys {
-  const cfg: Pick<PiModelConfig, "auth" | "modelsPath"> = {
-    auth: { kind: "keys", keys },
-    ...(modelsPath ? { modelsPath } : {}),
+export function piKeys({
+  keys,
+  choices,
+  apps = [],
+  modelsPath,
+  modelsStorePath,
+  http = fetch,
+}: {
+  keys: KeyFile;
+  choices: Choices;
+  apps?: AppKey[];
+  modelsPath?: string;
+  modelsStorePath?: string;
+  http?: typeof fetch;
+}): PiKeys {
+  const cfg: Pick<PiModelConfig, "auth"> = {
+    auth: { kind: "keys", keys, ...(modelsPath ? { modelsPath } : {}), ...(modelsStorePath ? { modelsStorePath } : {}) },
   };
   let choice: Choice = choices.load() ?? { chat: null, browser: null, background: null, voice: null, localVoice: null, installation: null, thinking: { chat: "off", browser: "off", background: "off" } };
   /** The speech service the mic uses: the one chosen, when it is still one there is (a service that has gone leaves the choice unset); null: the first with a key. */
@@ -252,6 +269,22 @@ export function piKeys({ keys, choices, apps = [], modelsPath, http = fetch }: {
     }
   };
   const loaded = loadAppKeys();
+  /** A fetch of the providers' catalogs now (one at a time: a second open waits for it), and when one last finished. */
+  let refreshing: Promise<void> | null = null;
+  let refreshedAt = 0;
+
+  /** Ask the providers Pi can ask, over the network, for the models they offer now: one that cannot be fetched keeps the ones it has. */
+  const fetchCatalogs = (): Promise<void> =>
+    (async () => {
+      const stored = new Set((await keys.list()).map((c) => c.providerId));
+      const models = await runtime(cfg);
+      // the providers set up here, whose catalogs Pi knows how to fetch (it leaves the others as they are)
+      const connected = models.getProviders().filter((p) => stored.has(p.id)).map((p) => p.id);
+      await models.refresh({ allowNetwork: true, providers: connected });
+    })()
+      .catch(() => {})
+      .then(() => void (refreshedAt = Date.now()))
+      .finally(() => void (refreshing = null));
 
   /** This instance's id, the same on every call (made and kept on the first). */
   const installation = () => {
@@ -398,6 +431,61 @@ export function piKeys({ keys, choices, apps = [], modelsPath, http = fetch }: {
     return first;
   };
 
+  /** Everything the app shows of the keys and the models: the providers as they are set up, and the models they offer now. */
+  const list = async (): Promise<KeysState> => {
+    await loaded;
+    const stored = new Map((await keys.list()).map((c) => [c.providerId, c]));
+    const keyOf = async (id: string) => {
+      const credential = await keys.read(id);
+      return credential?.type === "api_key" ? credential.key : undefined;
+    };
+    const appList: KeyProvider[] = await Promise.all(
+      apps.map(async (app): Promise<KeyProvider> => ({
+        id: app.id,
+        name: app.name,
+        use: "apps",
+        connected: stored.has(app.id),
+        way: stored.has(app.id) ? "key" : null,
+        hint: hint(await keyOf(app.id)),
+        account: null,
+        guide: guideOf(app.id),
+      })),
+    );
+    const modelList: KeyProvider[] = await Promise.all(
+      (await providers()).map(async (p): Promise<KeyProvider> => {
+        const type = stored.get(p.id)?.type;
+        return {
+          id: p.id,
+          name: p.name,
+          use: "models",
+          connected: type !== undefined,
+          way: type === undefined ? null : type === "oauth" ? "account" : "key",
+          hint: hint(await keyOf(p.id)),
+          account: p.auth.oauth ? { name: p.auth.oauth.name, subscription: p.auth.oauth.isSubscription === true } : null,
+          guide: guideOf(p.id),
+        };
+      }),
+    );
+    modelList.sort((a, b) => a.name.localeCompare(b.name));
+    return {
+      providers: [...appList, ...modelList],
+      models: await available(),
+      chat: choice.chat,
+      browser: choice.browser,
+      background: choice.background,
+      thinking: { chat: await inEffect("chat"), browser: await inEffect("browser"), background: await inEffect("background") },
+      voice: {
+        services: [
+          // only an API key serves speech: a sign-in with an account is for the provider's models
+          ...voiceServices.filter((v) => stored.get(v.provider)?.type === "api_key").map(({ provider, name }) => ({ provider, name })),
+          ...(choice.localVoice ? [{ provider: "local", name: `Your own server (${choice.localVoice.model})` }] : []),
+        ],
+        chosen: speech(),
+        local: choice.localVoice,
+      },
+    };
+  };
+
   return {
     model: (role) => runs(role),
     thinking: (role) => choice.thinking[role],
@@ -406,58 +494,14 @@ export function piKeys({ keys, choices, apps = [], modelsPath, http = fetch }: {
     appKey: (id) => appKeys.get(id) ?? null,
     onChange: (listener) => void listeners.push(listener),
 
-    async list() {
+    list,
+
+    async refresh() {
       await loaded;
-      const stored = new Map((await keys.list()).map((c) => [c.providerId, c]));
-      const keyOf = async (id: string) => {
-        const credential = await keys.read(id);
-        return credential?.type === "api_key" ? credential.key : undefined;
-      };
-      const appList: KeyProvider[] = await Promise.all(
-        apps.map(async (app): Promise<KeyProvider> => ({
-          id: app.id,
-          name: app.name,
-          use: "apps",
-          connected: stored.has(app.id),
-          way: stored.has(app.id) ? "key" : null,
-          hint: hint(await keyOf(app.id)),
-          account: null,
-          guide: guideOf(app.id),
-        })),
-      );
-      const modelList: KeyProvider[] = await Promise.all(
-        (await providers()).map(async (p): Promise<KeyProvider> => {
-          const type = stored.get(p.id)?.type;
-          return {
-            id: p.id,
-            name: p.name,
-            use: "models",
-            connected: type !== undefined,
-            way: type === undefined ? null : type === "oauth" ? "account" : "key",
-            hint: hint(await keyOf(p.id)),
-            account: p.auth.oauth ? { name: p.auth.oauth.name, subscription: p.auth.oauth.isSubscription === true } : null,
-            guide: guideOf(p.id),
-          };
-        }),
-      );
-      modelList.sort((a, b) => a.name.localeCompare(b.name));
-      return {
-        providers: [...appList, ...modelList],
-        models: await available(),
-        chat: choice.chat,
-        browser: choice.browser,
-        background: choice.background,
-        thinking: { chat: await inEffect("chat"), browser: await inEffect("browser"), background: await inEffect("background") },
-        voice: {
-          services: [
-            // only an API key serves speech: a sign-in with an account is for the provider's models
-            ...voiceServices.filter((v) => stored.get(v.provider)?.type === "api_key").map(({ provider, name }) => ({ provider, name })),
-            ...(choice.localVoice ? [{ provider: "local", name: `Your own server (${choice.localVoice.model})` }] : []),
-          ],
-          chosen: speech(),
-          local: choice.localVoice,
-        },
-      };
+      // one fetch at a time: whatever opens meanwhile waits for this one, and one that just finished is not asked again
+      if (refreshing === null && Date.now() - refreshedAt >= REFRESH_KEPT_MS) refreshing = fetchCatalogs();
+      await refreshing;
+      return await list();
     },
 
     async login(provider, way = "key") {

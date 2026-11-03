@@ -139,6 +139,12 @@ export const Call = z.discriminatedUnion("method", [
   call("goals.update", z.object({ id: z.string().min(1).max(100), status: GoalStatus.optional(), muted: z.boolean().optional() })),
   /** The providers there are for keys, which are set up, the models they offer and the ones chosen. */
   call("keys.list", z.object({})),
+  /**
+   * The same list once the providers' own model catalogs have been fetched over the network (what opening Settings ›
+   * Models does, so a model a provider added since this version shows up). A provider that cannot be fetched keeps the
+   * models it has, and nothing is said about it.
+   */
+  call("keys.refresh", z.object({})),
   /** Start setting up a provider: with its key (the default), or by signing in with the user's account there. Its first step. */
   call("keys.login", z.object({ provider: z.string().min(1).max(100), way: KeyWay.optional() })),
   /** Answer a sign-in's prompt: the next step. */
@@ -226,6 +232,7 @@ export const results = {
   "skills.get": z.object({ skill: SkillInfo, body: z.string(), files: z.array(z.string()) }),
   "skills.remove": done,
   "keys.list": KeysState,
+  "keys.refresh": KeysState,
   "keys.login": LoginStep,
   "keys.answer": LoginStep,
   "keys.wait": LoginStep,
@@ -299,6 +306,7 @@ export const parseResult: { [M in Method]: (raw: unknown) => Results[M] } = {
   "skills.get": (raw) => results["skills.get"].parse(raw),
   "skills.remove": (raw) => results["skills.remove"].parse(raw),
   "keys.list": (raw) => results["keys.list"].parse(raw),
+  "keys.refresh": (raw) => results["keys.refresh"].parse(raw),
   "keys.login": (raw) => results["keys.login"].parse(raw),
   "keys.answer": (raw) => results["keys.answer"].parse(raw),
   "keys.wait": (raw) => results["keys.wait"].parse(raw),

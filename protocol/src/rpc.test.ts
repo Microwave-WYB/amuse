@@ -56,6 +56,7 @@ const handlers: Handlers = {
   "skills.get": async () => ({ skill: { name: "s", description: "d", origin: "yours", replaced: false }, body: "", files: [] }),
   "skills.remove": async () => null,
   "keys.list": async () => ({ providers: [], models: [], chat: null, browser: null, background: null, thinking: { chat: "off", browser: "off", background: "off" }, voice: { services: [], chosen: null, local: null } }),
+  "keys.refresh": async () => ({ providers: [], models: [], chat: null, browser: null, background: null, thinking: { chat: "off", browser: "off", background: "off" }, voice: { services: [], chosen: null, local: null } }),
   "keys.login": async () => ({ kind: "done" }),
   "keys.answer": async () => ({ kind: "done" }),
   "keys.wait": async () => ({ kind: "wait", login: "l-1", notes: [], page: null, device: { code: "ABCD-1234", url: "https://github.com/login/device", expires: "2026-10-23T08:39:00Z" } }),
