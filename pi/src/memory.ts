@@ -1,6 +1,8 @@
 /**
  * Amuse's memory: Markdown files in the workspace, under memory/, which the
  * user can read and change too. In layers:
+ *   SOUL.md              who Amuse is: its own words about how it wants to be, which it may
+ *                        rewrite whenever it learns something about that (kept short)
  *   USER.md              who the user is: name, time zone, background (the most stable)
  *   MEMORY.md            what is true now, kept short: Facts, Preferences, Commitments; a newer
  *                        conclusion replaces an older one. Each line ends with its id (m-…).
@@ -21,6 +23,7 @@ import { Type } from "typebox";
 import { status } from "./status.ts";
 
 export const MEMORY = "memory";
+const SOUL = `${MEMORY}/SOUL.md`;
 const USER = `${MEMORY}/USER.md`;
 const FILE = `${MEMORY}/MEMORY.md`;
 const ALIGNMENT = `${MEMORY}/dreams/ALIGNMENT.md`;
@@ -116,12 +119,16 @@ async function every(files: Workspace, folder = MEMORY): Promise<string[]> {
 export async function memoryBrief(files: Workspace): Promise<string> {
   const parts = await Promise.all(
     [
+      [SOUL, "Who you are, in your own words"],
       [USER, "Who the user is"],
       [FILE, "What is true now"],
       [ALIGNMENT, "How to work with the user now (from your nightly reflection)"],
     ].map(async ([path, title]) => {
       const content = path ? await read(files, path).catch(() => null) : null;
-      if (!content?.trim()) return null;
+      if (!content?.trim()) {
+        // not written yet: say so once, so it knows the page exists and is its own
+        return path === SOUL ? `## Who you are (${SOUL})\nNot written yet. Write it yourself (write_file) when you have something to say about how you want to work with this user: a dozen lines at most.` : null;
+      }
       const body = path === FILE ? briefMemory(content, BRIEF_LIMIT) : clip(content.trim(), BRIEF_LIMIT);
       return `## ${title} (${path})\n${body}`;
     }),
@@ -137,7 +144,7 @@ export async function memoryBrief(files: Workspace): Promise<string> {
           ),
         ].join("\n");
   const shown = [...parts, working].filter((p) => p !== null);
-  return shown.length === 0 ? "" : `Your memory of the user (the files are yours to keep current):\n\n${shown.join("\n\n")}`;
+  return shown.length === 0 ? "" : `Your memory (the files are yours to keep current):\n\n${shown.join("\n\n")}`;
 }
 
 /** Lines of the memory files with as many of `query`'s words as can be found, best first. */
