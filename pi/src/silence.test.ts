@@ -75,3 +75,10 @@ test("suggest_replies with fewer than two different options attaches nothing", a
     [[]],
   );
 });
+
+test("a reply that is only the word no_reply (written, not called) is not shown either", async () => {
+  const { agent, io, replies, until } = await chat([fauxAssistantMessage("</think>\nno_reply")]);
+  agent.prompt(note, io);
+  await until(1);
+  assert.deepEqual(replies(), []);
+});

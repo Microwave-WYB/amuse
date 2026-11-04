@@ -301,8 +301,10 @@ export function piAgent(cfg: PiConfig): Pick<Ports, "prompt" | "interrupt" | "ti
           const { stopReason } = event.message;
           const text = said.trim();
           said = "";
+          // the model sometimes writes the word instead of calling the tool: a reply that is only that is no reply
+          const onlyName = /^(?:[\s\S]*<\/think>)?\s*`?no_reply`?\.?\s*$/i.test(text);
           if (stopReason === "error") failure = event.message.errorMessage ?? "The model run failed";
-          else if (text && !silent && stopReason !== "toolUse" && stopReason !== "aborted") {
+          else if (text && !silent && !onlyName && stopReason !== "toolUse" && stopReason !== "aborted") {
             heard = false;
             read.length = 0;
             emit({ kind: "upserted", entity: withOffer({ kind: "reply", id: newId("r"), at: new Date().toISOString(), text, streaming: false, attachments: [], suggestions: [], chosen: null }) });
