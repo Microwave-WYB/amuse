@@ -116,6 +116,35 @@ export function workspaceTools(io: () => AgentIO, files: Workspace, { send = tru
       },
     }),
     defineTool({
+      name: "edit_file",
+      label: "Change part of a file",
+      description:
+        "Change part of a text file in your workspace: `old` is the text to find, exactly as it is in the file, and `new` replaces it. It must appear exactly once unless `all` is set. Use this rather than rewriting a whole file with write_file, and read the file first so the text you give is exact. Change a file the user sent only when they asked for it.",
+      parameters: Type.Object({
+        status,
+        path: Type.String(),
+        old: Type.String({ description: "The text to replace, exactly as it appears in the file" }),
+        new: Type.String({ description: "What to put in its place; empty takes it out" }),
+        all: Type.Optional(Type.Boolean({ description: "Change every occurrence, not only a single one" })),
+      }),
+      async execute(_, { path, old: find, new: replacement, all }): Promise<Result> {
+        try {
+          const file = await files.open(path);
+          if (!textual(file.type, file.path)) return say(`${file.path} is a ${file.type} file: only text files can be changed here.`);
+          const text = new TextDecoder().decode(file.data);
+          const found = find === "" ? 0 : text.split(find).length - 1;
+          if (found === 0) return say(`${file.path} does not contain that text: nothing was changed. Read it with read_file and copy the words exactly.`);
+          if (found > 1 && all !== true) return say(`That text is in ${file.path} ${found} times: give more of it so it is found once, or set all to change every one. Nothing was changed.`);
+          const changed = all === true ? text.split(find).join(replacement) : text.replace(find, replacement);
+          const data = new TextEncoder().encode(changed);
+          await files.write(file.path, data, true);
+          return say(`Changed ${file.path}: ${found} place${found === 1 ? "" : "s"}, ${size(file.size)} → ${size(data.length)}.`);
+        } catch (e) {
+          return say(failed(e));
+        }
+      },
+    }),
+    defineTool({
       name: "move_file",
       label: "Move a file",
       description: "Move or rename a file or folder in your workspace. Files sent in the chat stay linked wherever they go.",

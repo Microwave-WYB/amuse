@@ -95,6 +95,7 @@ export type GatedTool =
   | "list_files"
   | "read_file"
   | "write_file"
+  | "edit_file"
   | "move_file"
   | "delete_file"
   | "send_file"
@@ -109,7 +110,7 @@ export type GatedTool =
   | "request_secret"
   | "use_secret";
 
-const fileTools = ["list_files", "read_file", "write_file", "move_file", "delete_file", "send_file"] as const satisfies readonly GatedTool[];
+const fileTools = ["list_files", "read_file", "write_file", "edit_file", "move_file", "delete_file", "send_file"] as const satisfies readonly GatedTool[];
 const secretTools = ["list_secrets", "request_secret", "use_secret"] as const satisfies readonly GatedTool[];
 const scheduleTools = ["schedule", "list_schedules", "cancel_schedule"] as const satisfies readonly GatedTool[];
 
@@ -127,7 +128,7 @@ export const SKILL_TOOLS: { readonly [K in BuiltInSkill]: readonly GatedTool[] }
   delegation: ["list_chats", "read_chat"],
   files: fileTools,
   goals: [...fileTools, "memory_get", ...scheduleTools],
-  herdr: ["run_command", ...secretTools, "list_files", "read_file", "write_file"],
+  herdr: ["run_command", ...secretTools, "list_files", "read_file", "write_file", "edit_file"],
   memory: ["memory_get", "memory_explain", "forget", "list_chats", "read_chat"],
   sandbox: ["run_command", ...secretTools, ...fileTools],
   schedules: scheduleTools,
