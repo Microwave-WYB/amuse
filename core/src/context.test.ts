@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { type Browser, type Entity, type Quote, type State, apply, empty } from "@amuse/protocol";
-import { agentContext as context, closedParts, recall } from "./context.ts";
+import { agentContext as context, budget, budgetForWindow, closedParts, recall } from "./context.ts";
 import { place } from "./decide.ts";
 
 const at = "2026-10-20T08:00:00Z";
@@ -180,24 +180,34 @@ const briefing = (n: number) => reply(`b${n}`, `Morning briefing ${n}: three mai
 /** Four briefings, each followed by a chat long enough to close blocks of 3 000 after it, then a few short replies. */
 const briefed = (): State => stateOf(...[0, 1, 2, 3].flatMap((n) => [briefing(n), ...chatOf(10, 280).map((e) => ({ ...e, id: `${e.id}-${n}` }))]), reply("r-last1", "ok"), reply("r-last2", "sure"), reply("r-last3", "done"));
 
-test("in the chat turn's window an older long briefing is flattened and shortened, in closed blocks before the newest one only", () => {
+test("an older briefing stays whole: nothing in the window is rewritten as the conversation grows", () => {
   const state = briefed();
-  const chat = context(state, { full: 24_000, brief: 8_000 }, undefined, 3_000, true);
-  const first = chat.split("\n").find((l) => l.includes("Morning briefing 0"));
-  assert.ok(first && first.length <= 270 && first.endsWith("…"), "the oldest briefing is one short line");
-  assert.doesNotMatch(chat, /tail-0/);
-  // the same chat, for a helper or read_chat: whole
-  const whole = context(state, { full: 24_000, brief: 8_000 }, undefined, 3_000);
-  assert.match(whole, /tail-0/);
-  assert.match(whole, /\n\nSecond paragraph/);
+  const window = context(state, { full: 24_000, brief: 8_000 }, undefined, 3_000);
+  assert.match(window, /tail-0/, "even the oldest briefing keeps its last words");
+  assert.match(window, /\n\nSecond paragraph/);
+  // the same conversation read by a helper or read_chat: the same lines, nothing flattened for one of them
+  assert.deepEqual(window.split("\n").filter((l) => l.includes("Morning briefing 0")), context(state, { full: 24_000, brief: 8_000 }, undefined, 3_000).split("\n").filter((l) => l.includes("Morning briefing 0")));
 });
 
-test("the latest replies stay whole in the chat turn's window, wherever their block is", () => {
+test("a long reply stays whole wherever its block falls and however much comes after it", () => {
   const long = (id: string, n: number) => reply(id, `Draft ${n}:\n\nDear Li, ${"p".repeat(600)}\n\nBest, ${"q".repeat(500)} end-${n}`);
-  // three long drafts close blocks of their own; they are the latest replies, so none is shortened
-  const state = stateOf(...chatOf(20, 280), long("d1", 1), prompt("u1", "and another"), long("d2", 2), prompt("u2", "one more"), long("d3", 3), prompt("u3", "make the second paragraph politer"));
-  const chat = context(state, { full: 24_000, brief: 8_000 }, undefined, 1_000, true);
-  for (const n of [1, 2, 3]) assert.match(chat, new RegExp(`end-${n}`), `draft ${n} is whole`);
+  const state = stateOf(...chatOf(20, 280), long("d1", 1), prompt("u1", "and another"), long("d2", 2), prompt("u2", "one more"), long("d3", 3), prompt("u3", "make the second paragraph politer"), ...chatOf(30, 280).map((e) => ({ ...e, id: `${e.id}-later` })));
+  const window = context(state, { full: 24_000, brief: 8_000 }, undefined, 1_000);
+  for (const n of [1, 2, 3]) assert.match(window, new RegExp(`end-${n}`), `draft ${n} is whole, paragraphs and all`);
+});
+
+test("the budget is what the model's window holds, less the prompt and the reply", () => {
+  const big = budgetForWindow(1_000_000, 40_000);
+  assert.equal(big.full, 1_000_000 - 8_192 - 10_000);
+  assert.equal(big.brief, Math.round(big.full / 3));
+  // a window smaller than what the fallback holds still keeps the fallback: nothing is dropped for nothing
+  assert.deepEqual(budgetForWindow(20_000, 0), { full: budget.full, brief: budget.brief });
+  // one conversation, three models: the window follows the model, so a smaller one is cut without any other bookkeeping
+  const state = stateOf(...chatOf(200, 280));
+  const generous = context(state, budgetForWindow(1_000_000, 0));
+  const small = context(state, budgetForWindow(30_000, 0));
+  assert.ok(small.length < generous.length);
+  assert.match(small, /earlier items not shown/);
 });
 
 test("memory_search over chats finds and gives a long reply and a schedule whole", () => {
@@ -221,14 +231,11 @@ test("memory_search over chats finds and gives a long reply and a schedule whole
   assert.match(recall(state, "vitamin D"), /and vitamin D last\./);
 });
 
-test("the newest closed block stays whole in the chat turn's window; it is shortened once a block closes after it", () => {
-  // blocks of 1 000: eight short turns close two blocks, then a long briefing closes the third, and three short replies follow it
+test("a briefing stays whole as later chat closes blocks after it", () => {
   const before = [...chatOf(10, 280), briefing(9), reply("r-a", "ok"), reply("r-b", "sure"), reply("r-c", "done"), prompt("p-a", "thanks")];
-  const chat = context(stateOf(...before), { full: 24_000, brief: 8_000 }, undefined, 1_000, true);
-  assert.match(chat, /tail-9/, "the briefing is whole while its block is the newest closed one");
-  // more chat closes a block after it: the briefing's block is no longer the newest, so it is shortened now
+  assert.match(context(stateOf(...before), { full: 24_000, brief: 8_000 }, undefined, 1_000), /tail-9/);
   const after = [...before, ...chatOf(4, 280).map((e) => ({ ...e, id: `${e.id}-x` }))];
-  const later = context(stateOf(...after), { full: 24_000, brief: 8_000 }, undefined, 1_000, true);
-  assert.doesNotMatch(later, /tail-9/, "the briefing is shortened once a block closes after it");
+  const later = context(stateOf(...after), { full: 24_000, brief: 8_000 }, undefined, 1_000);
+  assert.match(later, /tail-9/, "more chat does not rewrite what is already told");
   assert.match(later, /Morning briefing 9/);
 });

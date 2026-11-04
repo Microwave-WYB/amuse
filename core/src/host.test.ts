@@ -790,7 +790,8 @@ test("a helper's context has an old long reply whole; the chat turn's own window
   }
   const agent = io();
   assert.ok(agent);
-  assert.match(agent.context(), /end-of-draft/, "a helper, or read_chat, has the draft whole");
-  assert.doesNotMatch(agent.context("chat"), /end-of-draft/, "the chat turn's window has it shortened");
-  assert.match(agent.context("chat"), /Dear Li,/);
+  assert.match(agent.context(), /end-of-draft/, "the draft is whole in the fallback window");
+  const wide = agent.context({ full: 400_000, brief: 130_000 });
+  assert.match(wide, /end-of-draft/, "and whole in a window that holds it: nothing is shortened while it fits");
+  assert.match(wide, /Dear Li,/);
 });
