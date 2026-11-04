@@ -261,7 +261,9 @@ export function piAgent(cfg: PiConfig): Pick<Ports, "prompt" | "interrupt" | "ti
       // what is the same from turn to turn comes first, so the provider can reuse it: the rules, then the skills
       const system = [cfg.system, skills].filter(Boolean).join("\n\n");
       if (turn.kind === "message") setUpDefaults(cfg.defaults, agent);
-      const toolset = agentTools(cfg, io, () => heard, () => (silent = true), (options) => (offered = options), jobs);
+      // a note from background work may end with nothing to say; a turn the user started always has an answer to give
+      const background = turn.kind !== "message";
+      const toolset = agentTools(cfg, io, () => heard, () => (silent = true), (options) => (offered = options), background, jobs);
       // many calls in one turn, only what the script returns in its context
       // the chat has one cache name, and the turn's message begins with what the last one did: both let a provider find its cache again
       let stable: string[] = [];
@@ -299,8 +301,9 @@ export function piAgent(cfg: PiConfig): Pick<Ports, "prompt" | "interrupt" | "ti
           const { stopReason } = event.message;
           const text = said.trim();
           said = "";
-          // the model sometimes writes the word instead of calling the tool: a reply that is only that is no reply
-          const onlyName = /^(?:[\s\S]*<\/think>)?\s*`?no_reply`?\.?\s*$/i.test(text);
+          // the model sometimes writes the word instead of calling the tool: in a turn nobody is waiting on, a reply that is
+          // only that is no reply. A turn the user wrote to keeps it: there it is something to say, not a tool to call
+          const onlyName = background && !heard && /^(?:[\s\S]*<\/think>)?\s*`?no_reply`?\.?\s*$/i.test(text);
           if (stopReason === "error") failure = event.message.errorMessage ?? "The model run failed";
           else if (text && !silent && !onlyName && stopReason !== "toolUse" && stopReason !== "aborted") {
             heard = false;
@@ -392,9 +395,10 @@ export function piAgent(cfg: PiConfig): Pick<Ports, "prompt" | "interrupt" | "ti
 
 /**
  * The chat agent's tools, always in this order and with these schemas for the same setup (a provider caches a request by what it
- * starts with, and the tools come before the conversation): nothing here is sorted, shuffled or made up of the turn.
+ * starts with, and the tools come before the conversation): nothing here is sorted, shuffled or made up of the turn, but one
+ * thing: `background` is whether the turn is a note from background work, and only such a turn has `no_reply` at all.
  */
-export function agentTools(cfg: PiConfig, io: () => AgentIO, heard: () => boolean, silence: () => void, offer: (options: string[]) => void, jobs: JobBook | undefined = cfg.sandbox ? jobBook(cfg.sandbox) : undefined): ToolDefinition[] {
+export function agentTools(cfg: PiConfig, io: () => AgentIO, heard: () => boolean, silence: () => void, offer: (options: string[]) => void, background = true, jobs: JobBook | undefined = cfg.sandbox ? jobBook(cfg.sandbox) : undefined): ToolDefinition[] {
   return [
     // with memory, memory_search looks in the chats as recall did, and in memory/ too
     ...tools(io, cfg.rules, { files: cfg.files, appsSetup: cfg.appsSetup, appsFit: cfg.appsFit }).filter((t) => !(cfg.files && t.name === "recall")),
@@ -412,7 +416,7 @@ export function agentTools(cfg: PiConfig, io: () => AgentIO, heard: () => boolea
     ...(jobs ? jobs.tools(io) : []),
     ...(cfg.secrets ? secretTools(io, { ...cfg.secrets, sandbox: cfg.sandbox !== undefined }) : []),
     ...sayTools(io),
-    ...silenceTools(heard, silence),
+    ...(background ? silenceTools(heard, silence) : []),
     ...suggestTools(offer),
   ];
 }

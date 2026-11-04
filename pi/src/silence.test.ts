@@ -82,3 +82,10 @@ test("a reply that is only the word no_reply (written, not called) is not shown 
   await until(1);
   assert.deepEqual(replies(), []);
 });
+
+test("a turn the user wrote to has no no_reply at all: the word, written, is a reply like any other", async () => {
+  const { agent, io, replies, until } = await chat([fauxAssistantMessage("no_reply")]);
+  agent.prompt(asked, io);
+  await until(1);
+  assert.deepEqual(replies(), ["no_reply"]);
+});
