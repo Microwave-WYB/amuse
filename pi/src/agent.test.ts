@@ -110,6 +110,9 @@ test("a note turn is briefed the same way; when the user wrote too, their newest
   const { brief } = await import("./agent.ts");
   const quiet = brief(room("[2026-10-21 08:00] User: hi"), { kind: "note", text: "[task t-1 done] ok" }, "", [], null, "");
   assert.match(quiet.text, /\n---\nYou are in the main chat\.\n\nNow: .*\.\nA note from your background work.*call no_reply.*\n\[task t-1 done\] ok$/s);
+  // the note rules make the call mandatory and say what writing the name would do (issue #82: it reached the user)
+  assert.match(quiet.text, /you must call no_reply: that call is the only way this turn ends without a message/);
+  assert.match(quiet.text, /writing its name, or anything standing in for it, is a message to them and never silence/);
   const wrote = brief(room("[2026-10-21 08:00] User: hi"), { kind: "note", text: "[task t-1 done] ok" }, "", [{ kind: "message", text: "is it done?", attachments: [], quote: null, suggested: true }], null, "");
   assert.match(wrote.text, /A note from your background work \(not from the user\), and the user has also written since\..*\n\[task t-1 done\] ok\n\nThe user's newest message:\n\(they tapped one of your suggested replies\)\nis it done\?$/s);
   assert.doesNotMatch(wrote.text, /last lines above/);

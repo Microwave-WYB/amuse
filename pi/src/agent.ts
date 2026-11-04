@@ -561,7 +561,7 @@ export function brief(agent: Pick<AgentIO, "chat" | "chats" | "context" | "time"
       ? `Reply to the user's newest message:\n${newest}`
       : said.length > 0
         ? `A note from your background work (not from the user), and the user has also written since. Tell the user only what they need to hear of the note, in your own words, never that a note came, and reply to them.\n${turn.text}\n\nThe user's newest message:\n${newest}`
-        : `A note from your background work (not from the user). Tell the user only what they need to hear, in your own words, never that a note came. If nothing needs them (all is well, nothing was waiting, you already told them), call no_reply and write nothing: never explain why you are staying silent.\n${turn.text}`;
+        : `A note from your background work (not from the user). Tell the user only what they need to hear, in your own words, never that a note came. If nothing needs them (all is well, nothing was waiting, you already told them), you must call no_reply: that call is the only way this turn ends without a message. Whatever you end the turn with is what the user reads, so writing its name, or anything standing in for it, is a message to them and never silence; never explain why you are staying silent.\n${turn.text}`;
   const speaks = language ? `The user writes in ${language}: reply in ${language}.` : "";
   const since = kept ? `Since your last turn:\n${kept}` : "";
   const prefix = `The conversation so far, oldest first (times are the user's, ${timezone}):\n\n${agent.context("chat")}\n`;

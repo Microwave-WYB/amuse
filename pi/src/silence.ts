@@ -60,7 +60,7 @@ export function silenceTools(unanswered: () => boolean, silent: () => void): Too
       name: "no_reply",
       label: "Stay silent",
       description:
-        "End this turn without a message to the user. Use it when a note from your background work (a task's end, a scheduled check, a heartbeat, a notice you already passed on) has nothing new for them. Anything you write in this turn is dropped, so do not explain why you are staying silent.",
+        "End this turn without a message to the user: this call is the only way to stay silent. Use it when a note from your background work (a task's end, a scheduled check, a heartbeat, a notice you already passed on) has nothing new for them. Whatever you end the turn with reaches the user, so never write this tool's name, or anything standing in for it, as your reply: that is a message, not silence. Anything you write in this turn is dropped, so do not explain why you are staying silent.",
       parameters: Type.Object({}),
       async execute() {
         // never to a user who wrote: silence is for background notes
