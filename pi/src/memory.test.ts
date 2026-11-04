@@ -67,10 +67,22 @@ test("who the user is goes in USER.md; search finds lines across the memory file
 
 test("every turn gets who the user is and what is true now; nothing before there is any", async () => {
   const files = memoryWorkspace();
-  assert.equal(await memoryBrief(files), "");
+  const empty = await memoryBrief(files);
+  assert.match(empty, /## Who you are \(memory\/SOUL\.md\)\nNot written yet\./, "the page is offered before it exists");
+  assert.doesNotMatch(empty, /What is true now/, "and nothing else is claimed to be known");
+  // who Amuse is comes first, in its own file, and is nothing until it writes it
+  await files.write("memory/SOUL.md", new TextEncoder().encode("# Who I am\n\nShort sentences, no fuss. I say what I did, not how it works."), true);
+  const soul = await memoryBrief(files);
+  assert.match(soul, /## Who you are, in your own words \(memory\/SOUL\.md\)/);
+  assert.match(soul, /Short sentences, no fuss/, "in its own words, as written");
+  assert.match(soul, /I say what I did, not how it works/);
+  assert.doesNotMatch(soul, /Not written yet/, "once written, the page speaks for itself");
   await remember(files, io, { section: "Commitments", text: "Send the draft to Aaron by Friday", source: "the user" });
   const brief = await memoryBrief(files);
   assert.match(brief, /What is true now \(memory\/MEMORY\.md\)/);
+  assert.ok(brief.indexOf("## Who you are") < brief.indexOf("## What is true now"), "who Amuse is comes above what is true");
+  await files.write("memory/SOUL.md", new TextEncoder().encode("   "), true);
+  assert.match(await memoryBrief(files), /Not written yet/, "a blank SOUL.md is the same as a missing one");
   assert.match(brief, /Send the draft to Aaron by Friday/);
   await addGoal(files, { title: "Learn Japanese", about: "" }, "2026-10-21");
   const closing = await addGoal(files, { title: "Move to Seattle", about: "" }, "2026-10-21");
