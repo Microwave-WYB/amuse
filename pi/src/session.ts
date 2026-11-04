@@ -127,6 +127,8 @@ export interface Caching {
 /** A Pi session and how to let go of it (its scratch directory is removed). */
 export interface PiSession {
   session: AgentSession;
+  /** The context window of the model this session runs on, in tokens. */
+  contextWindow: number;
   close(): void;
 }
 
@@ -241,6 +243,7 @@ export async function sessionOn(
   }
   return {
     session,
+    contextWindow: model.contextWindow,
     close: () => rmSync(cwd, { recursive: true, force: true }),
   };
 }

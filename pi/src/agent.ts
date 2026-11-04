@@ -7,7 +7,7 @@
  * (the status line says what it is doing). Pi's coding tools, extensions,
  * skills and context files are all off: the model sees only amuse's tools (tools.ts).
  */
-import { type AgentIO, type Ports, type Rules, type Turn, type Workspace, attached, blank, closedParts, newId, nowIn, quoted, withJobs } from "@amuse/core";
+import { type AgentIO, type Budget, type Ports, type Rules, type Turn, type Workspace, attached, blank, budgetForWindow, closedParts, newId, nowIn, quoted, withJobs } from "@amuse/core";
 import { images, workspaceTools } from "./attachments.ts";
 import { memoryBrief, memoryReadTools, memoryWriteTools } from "./memory.ts";
 import { aboutTools } from "./about.ts";
@@ -324,7 +324,10 @@ export function piAgent(cfg: PiConfig): Pick<Ports, "prompt" | "interrupt" | "ti
         heard = taken.length > 0;
         // the user's messages this turn answers: those it took, or the one it is for
         const answering = taken.length > 0 ? taken : turn.kind === "message" ? [turn] : [];
-        const told = brief(jobs ? { ...agent, running: () => withJobs(agent.running(), jobs.running(agent.chat), agent.time().now) } : agent, turn, remembered, answering, language, lane.kept.splice(0).join("\n\n"));
+        // the conversation is cut to what this turn's model can take, worked out here because the model is known here:
+        // another model in Settings, or a model with a smaller window, needs nothing else
+        const window = budgetForWindow(session.contextWindow, system.length + JSON.stringify(toolset).length);
+        const told = brief(jobs ? { ...agent, running: () => withJobs(agent.running(), jobs.running(agent.chat), agent.time().now) } : agent, turn, remembered, answering, language, lane.kept.splice(0).join("\n\n"), window);
         stable = told.stable;
         // from here the model has the conversation as it stands: what the user adds goes to it as it works
         lane.steering = { session: pi, unread: [], sending: Promise.resolve() };
@@ -549,7 +552,7 @@ function newestMessage(said: Message[]): string {
  * is, what is running now (live.ts) and what happened while it was not looking, what is remembered, the language, the time, and what
  * to do, the user's newest message last of all (`said`: the user's messages the turn answers; a note turn may have taken some too).
  */
-export function brief(agent: Pick<AgentIO, "chat" | "chats" | "context" | "time" | "running">, turn: Turn, remembered: string, said: Message[], language: string | null, kept: string): Brief {
+export function brief(agent: Pick<AgentIO, "chat" | "chats" | "context" | "time" | "running">, turn: Turn, remembered: string, said: Message[], language: string | null, kept: string, limits?: Budget): Brief {
   const { now, timezone } = agent.time();
   const here = agent.chats().find((c) => c.id === agent.chat);
   const where = here?.main
@@ -564,7 +567,7 @@ export function brief(agent: Pick<AgentIO, "chat" | "chats" | "context" | "time"
         : `A note from your background work (not from the user). Tell the user only what they need to hear, in your own words, never that a note came. If nothing needs them (all is well, nothing was waiting, you already told them), you must call no_reply: that call is the only way this turn ends without a message. Whatever you end the turn with is what the user reads, so writing its name, or anything standing in for it, is a message to them and never silence; never explain why you are staying silent.\n${turn.text}`;
   const speaks = language ? `The user writes in ${language}: reply in ${language}.` : "";
   const since = kept ? `Since your last turn:\n${kept}` : "";
-  const prefix = `The conversation so far, oldest first (times are the user's, ${timezone}):\n\n${agent.context("chat")}\n`;
+  const prefix = `The conversation so far, oldest first (times are the user's, ${timezone}):\n\n${agent.context(limits)}\n`;
   const tail = `\n---\n${[where, agent.running(), since, remembered, speaks].filter(Boolean).join("\n\n")}\n\nNow: ${nowIn(now, timezone)}.\n${task}`;
   return { text: prefix + tail, stable: closedParts(prefix) };
 }

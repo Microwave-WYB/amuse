@@ -269,11 +269,11 @@ test("the session marks the request's cache where the turn's message holds still
   assert.equal(content.map((b: { text: string }) => b.text).join(""), text);
 });
 
-test("the chat turn's own window is asked for: older long replies may be shortened there, never in a helper's context", async () => {
+test("the chat turn asks for the conversation within the window it computed for this turn's model", async () => {
   const { brief } = await import("./agent.ts");
-  const asked: (string | undefined)[] = [];
-  const told = brief({ ...room(""), context: (view?: "chat") => (asked.push(view), view === "chat" ? "the chat window" : "the whole chat") }, { kind: "message", text: "hi", attachments: [], quote: null }, "", [], null, "");
-  assert.deepEqual(asked, ["chat"]);
+  const asked: (unknown[] | undefined)[] = [];
+  const told = brief({ ...room(""), context: (limits?: unknown) => (asked.push(limits as unknown[] | undefined), "the chat window") }, { kind: "message", text: "hi", attachments: [], quote: null }, "", [], null, "", { full: 500_000, brief: 166_667 });
+  assert.deepEqual(asked, [{ full: 500_000, brief: 166_667 }]);
   assert.match(told.text, /the chat window/);
 });
 
