@@ -139,6 +139,10 @@ test("the user's messages a turn answers are given together, last, with what the
 test("a helper is briefed with the conversation first and the work last", async () => {
   const { briefed } = await import("./worker.ts");
   const text = briefed({ context: () => "[2026-10-21 08:00] User: hi" }, "Wednesday noon", 'Task "x". Instructions:\nDo it.');
+  // a helper's briefing is told the window too: it reads the same conversation inside that model's limit
+  const asked: unknown[] = [];
+  briefed({ context: (limits?: unknown) => (asked.push(limits), "[2026-10-21 08:00] User: hi") }, "Wednesday noon", "Task", { full: 300_000, brief: 100_000 });
+  assert.deepEqual(asked, [{ full: 300_000, brief: 100_000 }]);
   assert.ok(text.indexOf("User: hi") < text.indexOf("Now: Wednesday noon") && text.indexOf("Now: ") < text.indexOf("Instructions:"));
 });
 

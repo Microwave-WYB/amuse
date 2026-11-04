@@ -8,7 +8,7 @@
  * operates a browser); and it hands off no work of its own.
  */
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
-import type { AgentIO } from "@amuse/core";
+import { type AgentIO, type Budget, budgetForWindow } from "@amuse/core";
 import type { PiConfig } from "./agent.ts";
 import { workspaceTools } from "./attachments.ts";
 import { redact } from "./redact.ts";
@@ -62,12 +62,19 @@ export function helperTools(cfg: PiConfig, run: RunHandle, hold: Hold): ToolDefi
  * The work and the conversation as a helper is briefed on them: the conversation first, which it shares with the chat's other
  * helpers and the chat itself (the provider reuses what a request begins with, context.ts), then the time and the work.
  */
-export function briefed(io: Pick<AgentIO, "context">, now: string, work: string): string {
-  return [`The conversation with the user so far, for background only (do not answer it):\n\n${io.context()}`, `---\nNow: ${now}.\n${work}`].join("\n\n");
+export function briefed(io: Pick<AgentIO, "context">, now: string, work: string, limits?: Budget): string {
+  return [`The conversation with the user so far, for background only (do not answer it):\n\n${io.context(limits)}`, `---\nNow: ${now}.\n${work}`].join("\n\n");
 }
 
 /** Run one helper to the end of its work: `system` its rules, `tools` everything it may use, `briefing` the work. */
-export async function work(cfg: PiConfig, run: RunHandle & { abort(): void }, system: string, toolset: ToolDefinition[], briefing: string): Promise<Worked> {
+export async function work(
+  cfg: PiConfig,
+  run: RunHandle & { abort(): void },
+  system: string,
+  toolset: ToolDefinition[],
+  /** the work and the conversation, made once this run's model is known, so the window is that model's */
+  briefing: (limits: Budget) => string,
+): Promise<Worked> {
   let session: PiSession | null = null;
   // Muse's messages reach the helper before its next step; its stop ends the work where it is
   const mail = inbox(run, () => session?.session ?? null, () => {
@@ -91,7 +98,9 @@ export async function work(cfg: PiConfig, run: RunHandle & { abort(): void }, sy
         }
       });
       try {
-        if (!run.stop.aborted) await session.session.prompt([briefing, mail.drain()].filter(Boolean).join("\n\n"), { expandPromptTemplates: false });
+        const limits = budgetForWindow(session.contextWindow, system.length + JSON.stringify(toolset).length);
+        const said = briefing(limits);
+        if (!run.stop.aborted) await session.session.prompt([said, mail.drain()].filter(Boolean).join("\n\n"), { expandPromptTemplates: false });
       } finally {
         unsubscribe();
       }
