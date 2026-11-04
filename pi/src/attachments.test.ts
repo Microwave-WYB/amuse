@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { type Workspace, noWorkspace } from "@amuse/core";
-import { images, textOf } from "./attachments.ts";
+import { images, textOf, workspaceTools } from "./attachments.ts";
 
 /** A one-page PDF that says "Hello PDF". */
 function pdf(): Uint8Array {
@@ -44,4 +44,51 @@ test("the images of a message go to the model; other files do not", async () => 
     { id: "f-gone", name: "b.png", type: "image/png", size: 4, path: "user/media_library/b.png" },
   ]);
   assert.deepEqual(shown, [{ type: "image", data: Buffer.from(png).toString("base64"), mimeType: "image/png" }]);
+});
+
+/** A workspace in memory: the file tools reach it through the Workspace port, as they do the real one. */
+function memoryFiles(initial: Record<string, string>): Workspace & { text(path: string): string | undefined } {
+  const map = new Map(Object.entries(initial));
+  return {
+    ...noWorkspace,
+    open: async (path: string) => {
+      const text = map.get(path);
+      if (text === undefined) throw new Error(`${path} is not in the workspace.`);
+      const data = new TextEncoder().encode(text);
+      return { path, type: "text/plain", size: data.length, data };
+    },
+    write: async (path: string, data: Uint8Array, overwrite: boolean) => {
+      if (map.has(path) && !overwrite) throw new Error(`${path} already exists.`);
+      map.set(path, new TextDecoder().decode(data));
+    },
+    text: (path: string) => map.get(path),
+  };
+}
+
+type Run = (id: string, args: Record<string, unknown>) => Promise<unknown>;
+const editTool = (files: Workspace) =>
+  workspaceTools(() => ({}) as never, files).find((t) => t.name === "edit_file")! as unknown as { execute: Run };
+const said = async (result: unknown) => JSON.stringify(result);
+
+test("edit_file changes one place, and writes nothing when the text is not there", async () => {
+  const files = memoryFiles({ "memory/SOUL.md": "Short sentences, no fuss.\nI say what I did.\n" });
+  const tool = editTool(files);
+  await tool.execute("1", { path: "memory/SOUL.md", old: "no fuss", new: "no ceremony" });
+  assert.equal(files.text("memory/SOUL.md"), "Short sentences, no ceremony.\nI say what I did.\n");
+  assert.match(await said(await tool.execute("2", { path: "memory/SOUL.md", old: "not there", new: "x" })), /does not contain that text/);
+  assert.equal(files.text("memory/SOUL.md"), "Short sentences, no ceremony.\nI say what I did.\n", "a miss writes nothing");
+});
+
+test("edit_file refuses text that appears more than once, unless every one is meant", async () => {
+  const files = memoryFiles({ "memory/MEMORY.md": "- Likes tea (m-1)\n- Likes tea (m-2)\n" });
+  const tool = editTool(files);
+  assert.match(await said(await tool.execute("1", { path: "memory/MEMORY.md", old: "Likes tea", new: "Prefers coffee" })), /2 times/);
+  assert.equal(files.text("memory/MEMORY.md"), "- Likes tea (m-1)\n- Likes tea (m-2)\n", "ambiguous writes nothing");
+  await tool.execute("2", { path: "memory/MEMORY.md", old: "Likes tea", new: "Prefers coffee", all: true });
+  assert.equal(files.text("memory/MEMORY.md"), "- Prefers coffee (m-1)\n- Prefers coffee (m-2)\n");
+});
+
+test("edit_file leaves files that are not text alone", async () => {
+  const files: Workspace = { ...noWorkspace, open: async (path: string) => ({ path, type: "application/pdf", size: 9, data: new Uint8Array([1, 2, 3]) }) };
+  assert.match(await said(await editTool(files).execute("1", { path: "user/a.pdf", old: "a", new: "b" })), /only text files/);
 });

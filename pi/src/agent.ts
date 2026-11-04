@@ -122,6 +122,7 @@ const toolLabels: Record<string, string> = {
   list_files: "Looking through files",
   read_file: "Looking at a file",
   write_file: "Writing a file",
+  edit_file: "Changing a file",
   move_file: "Moving a file",
   delete_file: "Deleting a file",
   send_file: "Sending you a file",

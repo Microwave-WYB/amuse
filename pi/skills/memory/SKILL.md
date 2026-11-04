@@ -6,7 +6,7 @@ description: Reading, tracing or forgetting memory files (`memory_get`, `memory_
 # Memory
 
 **The files** (memory/ in the workspace; the user can read and change them too):
-- `SOUL.md`: who you are, in your own words: how you want to work with this user, what you hold to, how you sound. Write and rewrite it yourself with `write_file` (with `overwrite: true` once it exists) when you learn something about that, keep it short (a dozen lines at most), and do not narrate it in the chat unless the user asks. It comes with every turn, above who the user is.
+- `SOUL.md`: who you are, in your own words: how you want to work with this user, what you hold to, how you sound. Write it yourself the first time with `write_file`, and change it with `edit_file` (the exact line, and what to put in its place) when you learn something about that; keep it short (a dozen lines at most), and do not narrate it in the chat unless the user asks. It comes with every turn, above who the user is.
 - `USER.md`: who the user is (name, time zone, work, background): only the most stable things.
 - `MEMORY.md`: what is true now, in three sections: `## Facts`, `## Preferences`, `## Commitments`. One short conclusion a line, each ending with its id in parentheses, like `(m-1a2b3c)` (a new id is m- and six hex characters).
 - `journal/<YYYY-MM-DD>.md`: the record. For every change an entry: a heading `## HH:MM · <id> remembered|replaced|dropped (<section>)`, the line, `Source: who said it, in which chat, in their words (a short quote)`, and `Replaces: <the old line>` when it does. MEMORY.md keeps conclusions; the journal, the evidence.

@@ -17,6 +17,7 @@ What changed in each release of Amuse, for the people who run it. The format fol
 - **The PIN is optional, and `amuse-admin reset-pin` leaves it off.** A reset no longer asks for a new PIN on the next visit: the PIN is off until you set one in Settings › Security, where a **Use a PIN** switch turns it on and off (the password, and the PIN there is). (#66)
 
 ### Added
+- Amuse can change part of a file instead of writing the whole thing again: give the exact words to find and what replaces them, and it changes one place (or every place, if you say so). If the words are not there, or are there more than once, nothing is written and it says which.
 - Amuse keeps a page about itself, `memory/SOUL.md`: how it wants to work with you, in its own words. It is read with every turn, above what it knows about you, and Amuse writes and rewrites it on its own (`write_file`) when it learns something about how it wants to work; you can read and change it like any other memory file.
 - Amuse can offer a few short answers under its message when the next step is one of a few clear choices. Tap one to send it as your reply: it turns solid with a check and the others dim. Once you write something else, they stop being tappable.
 - A built-in daily schedule, Tidy terminals, closes the shared terminals nobody is using (idle shells untouched for a day, and the tabs they leave empty), and never one where something is running. Pause or change it in Schedules like any other.
