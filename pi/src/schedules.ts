@@ -176,7 +176,7 @@ export function piScheduleRunner(cfg: PiConfig): Pick<Ports, "schedule"> {
           run,
           background,
           [...helperTools(cfg, run, holding(run)), report],
-          briefed(io, nowIn(now, timezone), `Scheduled task "${schedule.title}" (${schedule.id}). Instructions:\n${schedule.instructions}`),
+          (limits) => briefed(io, nowIn(now, timezone), `Scheduled task "${schedule.title}" (${schedule.id}). Instructions:\n${schedule.instructions}`, limits),
         );
         const end = (outcome: Exclude<RunOutcome, "missed">, summary: string) => io.act({ kind: "scheduleRan", id: schedule.id, outcome, summary: clip(summary) });
         switch (worked.kind) {

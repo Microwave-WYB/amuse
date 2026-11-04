@@ -66,7 +66,7 @@ export function piTaskRunner(cfg: PiConfig): Pick<Ports, "task" | "stopTask"> {
         });
         const { now, timezone } = io.time();
         const hold = holding(run, (waiting) => void io.act({ kind: "taskStatus", id: task.id, status: waiting ? "waiting" : "working" }));
-        const worked = await work(cfg, run, helper, [...helperTools(cfg, run, hold), plan], briefed(io, nowIn(now, timezone), `Task "${task.title}" (${task.id}). Instructions:\n${task.instructions}`));
+        const worked = await work(cfg, run, helper, [...helperTools(cfg, run, hold), plan], (limits) => briefed(io, nowIn(now, timezone), `Task "${task.title}" (${task.id}). Instructions:\n${task.instructions}`, limits));
         running.delete(task.id);
         if (worked.kind === "stopped") return; // the stop is already recorded
         const result = worked.kind === "done" ? worked.record || "Done." : worked.reason;
