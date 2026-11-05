@@ -84,3 +84,9 @@ test("in the sidebar, Back leaves a goal's page for the list, then Goals for the
   const chats = close(list, "left");
   assert.deepEqual([chats.left, chats.goal], [null, null]);
 });
+
+test("a picture open in the image viewer is the top layer, over the browser viewer, and Back closes only it", () => {
+  const viewing: Ui = { ...initialUi, viewer: { browserId: null, shown: "browser" }, photo: "f1" };
+  assert.deepEqual(layers(viewing, true), ["viewer", "photo"]);
+  assert.deepEqual(close(viewing, "photo"), { ...viewing, photo: null });
+});

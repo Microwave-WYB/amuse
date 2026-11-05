@@ -20,7 +20,8 @@ export type Layer =
   | "provider"
   | "entry"
   | "taskDetail"
-  | "explainer";
+  | "explainer"
+  | "photo";
 
 /**
  * What is open, bottom to top. A settings section is a layer of its own
@@ -41,6 +42,7 @@ export function layers(ui: Ui, phone: boolean): Layer[] {
     ["entry", ui.settings.open && ui.settings.entry !== null],
     ["taskDetail", ui.taskDetail !== null],
     ["explainer", ui.explainer !== null],
+    ["photo", ui.photo !== null],
   ];
   return open.filter(([, on]) => on).map(([layer]) => layer);
 }
@@ -74,6 +76,8 @@ export function close(ui: Ui, layer: Layer): Ui {
       return { ...ui, taskDetail: null };
     case "explainer":
       return { ...ui, explainer: null };
+    case "photo":
+      return { ...ui, photo: null };
   }
 }
 

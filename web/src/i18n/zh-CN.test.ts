@@ -58,6 +58,7 @@ const samples: Record<string, unknown[]> = {
   "chat.newMessages": [2],
   "chat.messageIn": ["Side chat"],
   "chat.removeFile": ["photo.png"],
+  "photos.open": ["beach.jpg"],
   "chat.notSent": ["Sample reason"],
   "viewer.browserWith": ["Working"],
   "cards.setsUp": ["$API_KEY"],

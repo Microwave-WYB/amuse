@@ -28,7 +28,6 @@ export const en = {
       failure: "Couldn't reply",
       error: "Error",
     },
-    openFile: (name: string) => `Open ${name}`,
     deleted: "Deleted",
     downloading: (percent: number | null) => (percent === null ? "Downloading…" : `Downloading ${percent}%`),
     savedTapToOpen: "Saved · tap to open",
@@ -181,6 +180,19 @@ export const en = {
       hours: (n: number) => `${n}h`,
       days: (n: number) => `${n}d`,
     },
+  },
+  photos: {
+    open: (name: string) => `View ${name}`,
+    viewer: "Pictures",
+    pictures: "Pictures in this chat",
+    picture: "Picture",
+    /** where the viewer is among the chat's pictures, said to a screen reader; the viewer fills in {index} and {total} */
+    position: "{index} of {total}",
+    previous: "Previous picture",
+    next: "Next picture",
+    close: "Close",
+    zoomIn: "Zoom in",
+    zoomOut: "Zoom out",
   },
   viewer: {
     browser: "Browser",
