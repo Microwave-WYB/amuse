@@ -799,7 +799,7 @@ export function piBrowserAgent(cfg: PiModelConfig, browsers: Browsers, rules: Ru
  */
 export function handedBack(browser: Browser): string | null {
   if (browser.outcome === null) return null;
-  return `[browser task "${browser.title}" (${browser.id})] The user took over this browser after its task was over, and has handed it back (they may have logged in, or done the step it stopped at). If what they asked needs more, go on in it: browse with browser ${browser.id}. If not, you must call no_reply (its name written as a reply reaches the user).`;
+  return `[browser task "${browser.title}" (${browser.id})] The user took over this browser after its task was over, and has handed it back (they may have logged in, or done the step it stopped at). If what they asked needs more, go on in it: browse with browser ${browser.id}. If not, end the turn without \`say\`.`;
 }
 
 /**
@@ -864,7 +864,7 @@ export function milestone(browser: Browser, note: string): string {
  * report: Amuse has to decide, and the run holds the browser where it is until it does.
  */
 export function pausedAtBudget(browser: Browser, report: string, steps: number): string {
-  return `[browser task "${browser.title}" (${browser.id}) paused after ${steps} steps]\n${untrusted(report)}\n\nIt is holding the browser where it is. To go on, tell it what to do next with \`message_run\` (another ${steps} steps); to end it, \`stop_run\`. If you are unsure what the user wants, ask them and call no_reply (never write its name).`;
+  return `[browser task "${browser.title}" (${browser.id}) paused after ${steps} steps]\n${untrusted(report)}\n\nIt is holding the browser where it is. To go on, tell it what to do next with \`message_run\` (another ${steps} steps); to end it, \`stop_run\`. If you are unsure what the user wants, ask them with \`say\` and end the turn.`;
 }
 
 /** The same, when nothing continued it: the run ends as stopped, and the report it handed over is kept as its result. */

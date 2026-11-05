@@ -109,10 +109,12 @@ test("the message of the next turn begins with the message of this one up to whe
 test("a note turn is briefed the same way; when the user wrote too, their newest message comes after the note, last", async () => {
   const { brief } = await import("./agent.ts");
   const quiet = brief(room("[2026-10-21 08:00] User: hi"), { kind: "note", text: "[task t-1 done] ok" }, "", [], null, "");
-  assert.match(quiet.text, /\n---\nYou are in the main chat\.\n\nNow: .*\.\nA note from your background work.*call no_reply.*\n\[task t-1 done\] ok$/s);
-  // the note rules make the call mandatory and say what writing the name would do (issue #82: it reached the user)
-  assert.match(quiet.text, /you must call no_reply: that call is the only way this turn ends without a message/);
-  assert.match(quiet.text, /writing its name, or anything standing in for it, is a message to them and never silence/);
+  assert.match(quiet.text, /\n---\nYou are in the main chat\.\n\nNow: .*\.\nA note from your background work.*\n\[task t-1 done\] ok$/s);
+  // a note turn shows nothing it ends with: reaching the user takes `say` (issue #82 — the word itself used to be sent)
+  assert.match(quiet.text, /Nothing you end this turn with is shown to the user/);
+  assert.match(quiet.text, /To tell the user something, call `say`/);
+  assert.match(quiet.text, /just end the turn/);
+  assert.doesNotMatch(quiet.text, /no_reply/);
   const wrote = brief(room("[2026-10-21 08:00] User: hi"), { kind: "note", text: "[task t-1 done] ok" }, "", [{ kind: "message", text: "is it done?", attachments: [], quote: null, suggested: true }], null, "");
   assert.match(wrote.text, /A note from your background work \(not from the user\), and the user has also written since\..*\n\[task t-1 done\] ok\n\nThe user's newest message:\n\(they tapped one of your suggested replies\)\nis it done\?$/s);
   assert.doesNotMatch(wrote.text, /last lines above/);
@@ -177,7 +179,7 @@ test("the chat's tools come in the same order with the same schemas however ofte
       throw new Error("not used to build tools");
     };
     const cfg: PiConfig = { model: () => null, auth: { kind: "environment" }, system: "s", rules: memoryRules(), files: noWorkspace, apps, skills, about: async () => "", search: async () => [] };
-    return agentTools(cfg, io, () => false, () => {}, () => {}).map((t) => JSON.stringify([t.name, t.description, t.parameters]));
+    return agentTools(cfg, io, () => {}).map((t) => JSON.stringify([t.name, t.description, t.parameters]));
   };
   const one = build([skill("a"), skill("b")]);
   assert.ok(one.length > 20);
@@ -290,10 +292,10 @@ test("the tools a chat turn starts with: the core ones and the controls of runni
   const io = () => {
     throw new Error("not used to build tools");
   };
-  const names = agentTools(cfg, io, () => false, () => {}, () => {}).map((t) => t.name);
+  const names = agentTools(cfg, io, () => {}).map((t) => t.name);
   assert.deepEqual(
     names.filter((n) => !GATED_TOOLS.has(n)),
-    ["current_time", "browse", "read_browser", "memory_search", "remember", "use_skill", "start_task", "message_run", "answer_question", "stop_run", "web_search", "web_read", "job_output", "stop_job", "say", "no_reply", "suggest_replies"],
+    ["current_time", "browse", "read_browser", "memory_search", "remember", "use_skill", "start_task", "message_run", "answer_question", "stop_run", "web_search", "web_read", "job_output", "stop_job", "say", "suggest_replies"],
   );
 });
 
