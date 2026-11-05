@@ -24,7 +24,7 @@ import { taskTools } from "./tasks.ts";
 import { scheduleTools } from "./schedules.ts";
 import { type JobBook, jobBook } from "./jobs.ts";
 import { type SecretAccess, secretTools } from "./secrets.ts";
-import { sayTools, silenceTools, suggestTools } from "./silence.ts";
+import { sayTools, suggestTools } from "./silence.ts";
 import { type Apps, appTools, chatTools, tools } from "./tools.ts";
 import { type Search, webTools } from "./web.ts";
 
@@ -135,7 +135,6 @@ const toolLabels: Record<string, string> = {
   message_run: "Telling a background task",
   answer_question: "Passing on your answer",
   stop_run: "Stopping a background task",
-  no_reply: "Wrapping up",
   say: "Writing to you",
   suggest_replies: "Writing to you",
 };
@@ -250,8 +249,6 @@ export function piAgent(cfg: PiConfig): Pick<Ports, "prompt" | "interrupt" | "ti
     emit({ kind: "activity", activity: { kind: "responding", label: null } });
     /** what the model is writing in its current message */
     let said = "";
-    /** the model chose to say nothing this turn: whatever it writes is dropped */
-    let silent = false;
     try {
       // the user's language, said where the model weighs it most: the end of the turn's message, beside what to do
       const language = scriptOf(agent.lastWords());
@@ -264,7 +261,7 @@ export function piAgent(cfg: PiConfig): Pick<Ports, "prompt" | "interrupt" | "ti
       if (turn.kind === "message") setUpDefaults(cfg.defaults, agent);
       // the tools a turn starts with depend only on the setup and the kind of chat (a side chat looks up the others), so a provider caches them
       const unlocked = agent.chats().find((c) => c.id === agent.chat)?.main ? [] : ["list_chats", "read_chat"];
-      const toolset = agentTools(cfg, io, () => heard, () => (silent = true), (options) => (offered = options), jobs, { gate: true, unlocked });
+      const toolset = agentTools(cfg, io, (options) => (offered = options), jobs, { gate: true, unlocked });
       // many calls in one turn, only what the script returns in its context
       // the chat has one cache name, and the turn's message begins with what the last one did: both let a provider find its cache again
       let stable: string[] = [];
@@ -291,7 +288,6 @@ export function piAgent(cfg: PiConfig): Pick<Ports, "prompt" | "interrupt" | "ti
           const [steered] = at >= 0 ? (lane.steering?.unread.splice(at, 1) ?? []) : [];
           if (steered) {
             // what the model decided about the turn before was about the turn before; the user is to be answered
-            silent = false;
             heard = true;
             readAny = true;
             read.push(steered.turn);
@@ -303,7 +299,9 @@ export function piAgent(cfg: PiConfig): Pick<Ports, "prompt" | "interrupt" | "ti
           const text = said.trim();
           said = "";
           if (stopReason === "error") failure = event.message.errorMessage ?? "The model run failed";
-          else if (text && !silent && stopReason !== "toolUse" && stopReason !== "aborted") {
+          // a note turn reaches the user only through `say`: what it writes at the end is its own thinking, so a
+          // stray word (the name of a tool it meant to call, a leftover tag) can never appear as a message
+          else if (text && (turn.kind !== "note" || heard) && stopReason !== "toolUse" && stopReason !== "aborted") {
             heard = false;
             read.length = 0;
             emit({ kind: "upserted", entity: withOffer({ kind: "reply", id: newId("r"), at: new Date().toISOString(), text, streaming: false, attachments: [], suggestions: [], chosen: null }) });
@@ -403,8 +401,6 @@ export function piAgent(cfg: PiConfig): Pick<Ports, "prompt" | "interrupt" | "ti
 export function agentTools(
   cfg: PiConfig,
   io: () => AgentIO,
-  heard: () => boolean,
-  silence: () => void,
   offer: (options: string[]) => void,
   jobs: JobBook | undefined = cfg.sandbox ? jobBook(cfg.sandbox) : undefined,
   options?: { gate?: boolean | undefined; unlocked?: Iterable<string> | undefined },
@@ -426,7 +422,6 @@ export function agentTools(
     ...(jobs ? jobs.tools(io) : []),
     ...(cfg.secrets ? secretTools(io, { ...cfg.secrets, sandbox: cfg.sandbox !== undefined }) : []),
     ...sayTools(io),
-    ...silenceTools(heard, silence),
     ...suggestTools(offer),
   ];
   // the tools behind a skill come after all the others: Pi declares a tool a skill unlocks in its place in this list, so
@@ -565,7 +560,7 @@ export function brief(agent: Pick<AgentIO, "chat" | "chats" | "context" | "time"
       ? `Reply to the user's newest message:\n${newest}`
       : said.length > 0
         ? `A note from your background work (not from the user), and the user has also written since. Tell the user only what they need to hear of the note, in your own words, never that a note came, and reply to them.\n${turn.text}\n\nThe user's newest message:\n${newest}`
-        : `A note from your background work (not from the user). Tell the user only what they need to hear, in your own words, never that a note came. If nothing needs them (all is well, nothing was waiting, you already told them), you must call no_reply: that call is the only way this turn ends without a message. Whatever you end the turn with is what the user reads, so writing its name, or anything standing in for it, is a message to them and never silence; never explain why you are staying silent.\n${turn.text}`;
+        : `A note from your background work (not from the user). Nothing you end this turn with is shown to the user: your last words here are your own thinking, so use them however helps you. To tell the user something, call \`say\` with it, in your own words, and never that a note came. If nothing needs them (all is well, nothing was waiting, you already told them), just end the turn.\n${turn.text}`;
   const speaks = language ? `The user writes in ${language}: reply in ${language}.` : "";
   const since = kept ? `Since your last turn:\n${kept}` : "";
   const prefix = `The conversation so far, oldest first (times are the user's, ${timezone}):\n\n${agent.context(limits)}\n`;

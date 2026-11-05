@@ -142,7 +142,7 @@ test("a note from background work is not steered: it waits for the turn", async 
         seen.push(userTexts(context));
         return fauxAssistantMessage("First answer.");
       },
-      fauxAssistantMessage(fauxToolCall("no_reply", {}), { stopReason: "toolUse" }),
+      fauxAssistantMessage("(nothing to add)"),
     ],
     { tools: [tool] },
   );
@@ -377,7 +377,6 @@ test("a file sent on its own answers the user: silence is then allowed", async (
     [
       fauxAssistantMessage(fauxToolCall("wait", {}), { stopReason: "toolUse" }),
       fauxAssistantMessage(fauxToolCall("send_file", { status: "Sending", path: "a.png" }), { stopReason: "toolUse" }),
-      fauxAssistantMessage(fauxToolCall("no_reply", {}), { stopReason: "toolUse" }),
     ],
     { tools: [tool], files },
   );
@@ -459,24 +458,23 @@ test("a note turn that took in a message the user sent is answered for them: its
   assert.deepEqual(failures(), ["message"]);
 });
 
-test("no_reply is refused after the user wrote: they are answered", async () => {
+test("a note turn that read the user's message answers them with what it ends with", async () => {
   const { tool, running, release } = slow();
   const { agent, io, faux, conversation, replies, until } = await chat(
     [
       fauxAssistantMessage(fauxToolCall("wait", {}), { stopReason: "toolUse" }),
-      fauxAssistantMessage(fauxToolCall("no_reply", {}), { stopReason: "toolUse" }),
       fauxAssistantMessage("Here is tomorrow."),
     ],
     { tools: [tool] },
   );
   agent.prompt({ kind: "note", text: "[task t-1 completed] done" }, io);
-  // the user writes while it works, and the model, having read it, tries to stay silent
+  // the user writes while it works: the model reads it, so its closing words are the answer they are owed
   await running;
   interject(conversation, agent, io, "also check tomorrow");
   release();
   await until(1);
   assert.deepEqual(replies(), ["Here is tomorrow."]);
-  assert.equal(faux.state.callCount, 3);
+  assert.equal(faux.state.callCount, 2);
 });
 
 test("messages sent one after another reach the model in the order sent, though a file makes one slower to load", async () => {

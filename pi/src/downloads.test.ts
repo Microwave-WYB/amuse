@@ -50,7 +50,7 @@ test("handing back a browser whose task was over tells the chat to go on in it; 
     live: true,
     outcome: "completed",
   });
-  assert.match(handedBack(browser) ?? "", /handed it back.*browse with browser b-1.*no_reply/s);
+  assert.match(handedBack(browser) ?? "", /handed it back.*browse with browser b-1.*end the turn without/s);
   assert.equal(handedBack({ ...browser, outcome: null }), null);
 });
 
